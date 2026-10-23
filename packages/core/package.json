@@ -1,0 +1,30 @@
+{
+  "name": "@connector-hub/core",
+  "version": "0.0.0",
+  "description": "Declarative connector engine: the host does all I/O, plugins only declare.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akashks1998/connector-hub.git",
+    "directory": "packages/core"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@connector-hub/spec": "workspace:*",
+    "@connector-hub/cel": "workspace:*",
+    "zod": "4.6.5"
+  }
+}

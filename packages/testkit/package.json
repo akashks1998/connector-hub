@@ -1,0 +1,13 @@
+{
+  "name": "@connector-hub/testkit",
+  "version": "0.0.0",
+  "description": "In-memory host ports, fixture replay and certification for connector-hub plugins.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "engines": { "node": ">=20" },
+  "repository": { "type": "git", "url": "git+https://github.com/akashks1998/connector-hub.git", "directory": "packages/testkit" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist"],
+  "dependencies": { "@connector-hub/core": "workspace:*", "@connector-hub/spec": "workspace:*" }
+}

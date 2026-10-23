@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/spec" },
+    { "path": "packages/cel" },
+    { "path": "packages/core" },
+    { "path": "packages/testkit" },
+    { "path": "domains/str" },
+    { "path": "domains/contacts" }
+  ]
+}

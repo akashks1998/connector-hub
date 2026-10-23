@@ -1,0 +1,13 @@
+{
+  "name": "@connector-hub/domain-str",
+  "version": "0.0.0",
+  "description": "Short-term rental domain pack: listings, calendar days, booking revisions.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "engines": { "node": ">=20" },
+  "repository": { "type": "git", "url": "git+https://github.com/akashks1998/connector-hub.git", "directory": "domains/str" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist"],
+  "dependencies": { "@connector-hub/spec": "workspace:*" }
+}

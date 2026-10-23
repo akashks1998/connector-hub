@@ -1,0 +1,22 @@
+{
+  "name": "connector-hub-monorepo",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@11.1.3",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf packages/*/dist domains/*/dist *.tsbuildinfo packages/*/*.tsbuildinfo domains/*/*.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3",
+    "vitest": "5.0.3"
+  }
+}

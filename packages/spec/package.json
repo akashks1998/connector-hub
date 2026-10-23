@@ -1,0 +1,13 @@
+{
+  "name": "@connector-hub/spec",
+  "version": "0.0.0",
+  "description": "Plugin and domain-pack declaration format for connector-hub.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "engines": { "node": ">=20" },
+  "repository": { "type": "git", "url": "git+https://github.com/akashks1998/connector-hub.git", "directory": "packages/spec" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist"],
+  "dependencies": { "zod": "4.6.5" }
+}

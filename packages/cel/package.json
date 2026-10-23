@@ -1,0 +1,13 @@
+{
+  "name": "@connector-hub/cel",
+  "version": "0.0.0",
+  "description": "Restricted CEL expressions with cost limits and field analysis for connector-hub.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "engines": { "node": ">=20" },
+  "repository": { "type": "git", "url": "git+https://github.com/akashks1998/connector-hub.git", "directory": "packages/cel" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist"],
+  "dependencies": { "@marcbachmann/cel-js": "8.0.0" }
+}

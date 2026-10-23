@@ -1,0 +1,13 @@
+{
+  "name": "@connector-hub/domain-contacts",
+  "version": "0.0.0",
+  "description": "Contacts domain pack: people and organisations.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "engines": { "node": ">=20" },
+  "repository": { "type": "git", "url": "git+https://github.com/akashks1998/connector-hub.git", "directory": "domains/contacts" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist"],
+  "dependencies": { "@connector-hub/spec": "workspace:*" }
+}
