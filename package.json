@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p examples",
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rm -rf packages/*/dist domains/*/dist *.tsbuildinfo packages/*/*.tsbuildinfo domains/*/*.tsbuildinfo"

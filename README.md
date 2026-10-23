@@ -94,6 +94,23 @@ await runSink(plugin, binding, 'availability', hostPorts)
 
 Failures are `ConnectorError`s with a `kind` your job queue acts on: `retryable` (with `retryAfterMs` when the provider said so), `reauth`, `permanent` or `config`. The engine never retries by itself.
 
+## Live examples
+
+Three runnable examples against public APIs, each with its own small domain pack (Node 22.6+):
+
+```sh
+pnpm build
+pnpm --filter @connector-hub/examples wikipedia   # cursor paging + incremental cursor
+pnpm --filter @connector-hub/examples github      # page paging, page cap, skipping pull requests
+pnpm --filter @connector-hub/examples httpbin     # sink plan/apply: send changes only
+```
+
+| Example | Shows |
+| --- | --- |
+| Wikipedia recent changes | `rccontinue` cursor pagination; the second run starts from the saved edit time |
+| GitHub issues | Page-number paging; `max_pages` stops the run with `complete=false` and the cursor stays put |
+| httpbin | First run sends every row, second sends nothing, a single change sends one batch; undeclared fields never leave |
+
 ## Packages
 
 | Package | Contents |

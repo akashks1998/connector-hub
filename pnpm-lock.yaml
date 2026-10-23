@@ -30,6 +30,18 @@ importers:
         specifier: workspace:*
         version: link:../../packages/spec
 
+  examples:
+    dependencies:
+      '@connector-hub/core':
+        specifier: workspace:*
+        version: link:../packages/core
+      '@connector-hub/spec':
+        specifier: workspace:*
+        version: link:../packages/spec
+      '@connector-hub/testkit':
+        specifier: workspace:*
+        version: link:../packages/testkit
+
   packages/cel:
     dependencies:
       '@marcbachmann/cel-js':

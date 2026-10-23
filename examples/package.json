@@ -1,0 +1,16 @@
+{
+  "name": "@connector-hub/examples",
+  "private": true,
+  "type": "module",
+  "description": "Live examples against public APIs. Run with Node 22.6+ (type stripping).",
+  "scripts": {
+    "wikipedia": "node src/wikipedia.ts",
+    "github": "node src/github.ts",
+    "httpbin": "node src/httpbin.ts"
+  },
+  "dependencies": {
+    "@connector-hub/core": "workspace:*",
+    "@connector-hub/spec": "workspace:*",
+    "@connector-hub/testkit": "workspace:*"
+  }
+}
