@@ -17,7 +17,8 @@ All logic in a plugin is CEL, compiled at load time:
 - Variables are declared per position (`record`, `row`, `batch`, `response`,
   `config`, `secrets`, `cursor`, `page`). An expression can't read anything else.
 - Parse limits cap size and depth. Nested comprehensions (`map` inside `map`)
-  are rejected, so cost stays linear in the input.
+  and regular expressions are rejected, and results are capped relative to
+  the body limit, so an expression's cost stays bounded by its input.
 - Every variable path an expression reads is extracted from its syntax tree.
   The compiler uses this to check `config.*` and `secrets.*` against declared
   config, and `row.*` against a sink's declared input.

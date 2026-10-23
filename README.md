@@ -4,6 +4,12 @@ A declarative connector engine for TypeScript. A connector plugin is a **declara
 
 > Status: `0.x`, early development. The contract changes between minor versions until 1.0.
 
+```sh
+npm install @connector-hub/core @connector-hub/domain-str
+```
+
+**Documentation:** [getting started](docs/getting-started.md) · [plugin reference](docs/plugin-reference.md) · [expressions](docs/expressions.md) · [integrating a host](docs/host-integration.md) · [all docs](docs/README.md)
+
 ## Why declarations
 
 SQL is powerful because a query cannot control how it runs. connector-hub applies the same idea to integrations:
@@ -74,7 +80,7 @@ sinks:
     ack: response.body.status == "success"
 ```
 
-`compilePlugin` rejects this file if, for example, a mapping reads `row.price_minor` without declaring it, a field isn't in the domain pack, a key field is missing, or the token URL points outside `hosts`.
+`compilePlugin` rejects this file if, for example, the sink's body reads `c.row.price_minor` without declaring it, a field isn't in the domain pack, a key field is missing, or the token URL points outside `hosts`. At run time, every value is checked against its field type.
 
 ## Running it
 
@@ -139,7 +145,7 @@ pnpm test
 pnpm build
 ```
 
-Node 20 or later. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/design.md](docs/design.md).
+Node 22 or later. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/design.md](docs/design.md).
 
 ## Licence
 

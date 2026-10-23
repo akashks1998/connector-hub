@@ -1,13 +1,50 @@
 {
   "name": "@connector-hub/spec",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Plugin and domain-pack declaration format for connector-hub.",
+  "keywords": [
+    "connector-hub",
+    "schema",
+    "plugin",
+    "declarative"
+  ],
   "license": "Apache-2.0",
+  "author": "Akash Kumar Singh",
+  "homepage": "https://github.com/akashks1998/connector-hub/tree/main/packages/spec#readme",
+  "bugs": "https://github.com/akashks1998/connector-hub/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akashks1998/connector-hub.git",
+    "directory": "packages/spec"
+  },
   "type": "module",
   "sideEffects": false,
-  "engines": { "node": ">=20" },
-  "repository": { "type": "git", "url": "git+https://github.com/akashks1998/connector-hub.git", "directory": "packages/spec" },
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist"],
-  "dependencies": { "zod": "4.6.5" }
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema/*": "./schema/*",
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "schema"
+  ],
+  "scripts": {
+    "build": "tsc -b && node scripts/build-schemas.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "zod": "^4.1.0"
+  }
 }

@@ -13,8 +13,8 @@ describe('compile', () => {
     expect([...env.compile('record["first-name"] + row.city').refs].sort()).toEqual(['record.first-name', 'row.city'])
   })
 
-  it('ignores comprehension variables', () => {
-    expect([...env.compile('batch.changes.map(c, c.row)').refs]).toEqual(['batch.changes'])
+  it('records comprehension variables as paths into the list', () => {
+    expect([...env.compile('batch.changes.map(c, c.row.price)').refs]).toEqual(['batch.changes', 'batch.changes[].row.price'])
   })
 
   it('rejects undeclared variables', () => {

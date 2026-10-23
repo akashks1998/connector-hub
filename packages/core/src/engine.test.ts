@@ -133,7 +133,7 @@ describe('compilePlugin', () => {
 
   it('refuses a token URL outside the declared hosts', () => {
     const plugin = { ...acme, auth: { ...(acme.auth as object), token_url: 'https://evil.test/token' } } as PluginInput
-    expect(() => compilePlugin(plugin, strDomain)).toThrow(/token_url: https:\/\/evil.test is not in hosts/)
+    expect(() => compilePlugin(plugin, strDomain)).toThrow(/token_url: https:\/\/evil.test\/token is not under hosts/)
   })
 })
 
@@ -145,12 +145,13 @@ describe('runSource', () => {
       token,
       { request: { url: `${API}/v1/reservations?limit=2&offset=0` }, response: { body: { result: [reservation(1, '2026-10-01T10:00:00Z'), reservation(2, '2026-10-03T09:00:00Z', 'test')] } } },
       { request: { url: `${API}/v1/reservations?limit=2&offset=2` }, response: { body: { result: [reservation(3, '2026-10-02T08:00:00Z', 'cancelled')] } } },
+      { request: { url: `${API}/v1/reservations?limit=2&offset=3` }, response: { body: { result: [] } } },
     ])
     const host = memoryHost({ http, secrets })
 
     const result = await runSource(plugin, binding('b1'), 'reservations', host.ports)
 
-    expect(result.pages).toBe(2)
+    expect(result.pages).toBe(3)
     expect(result.complete).toBe(true)
     expect(host.applied.map((o) => [o.key.external_id, o.fields.status, o.fields.total_minor])).toEqual([
       ['1', 'confirmed', 450050],
@@ -167,6 +168,7 @@ describe('runSource', () => {
     const http = replayHttp([
       token,
       { request: { url: `${API}/v1/reservations?limit=2&offset=0` }, response: { body: { result: [reservation(1, '2026-10-01T10:00:00Z')] } } },
+      { request: { url: `${API}/v1/reservations?limit=2&offset=1` }, response: { body: { result: [] } } },
       { request: { url: `${API}/v1/reservations?limit=2&offset=0&updatedSince=2026-10-01T10%3A00%3A00Z` }, response: { body: { result: [] } } },
     ])
     const host = memoryHost({ http, secrets })
@@ -180,6 +182,7 @@ describe('runSource', () => {
     const http = replayHttp([
       token,
       { request: { url: `${API}/v1/reservations?limit=2&offset=0` }, response: { body: { result: [reservation(1, '2026-10-01T10:00:00Z')] } } },
+      { request: { url: `${API}/v1/reservations?limit=2&offset=1` }, response: { body: { result: [] } } },
     ])
     const host = memoryHost({ http, secrets })
     const result = await runSource(plugin, binding('b1'), 'reservations', host.ports, { dryRun: true })
@@ -193,6 +196,7 @@ describe('runSource', () => {
     const http = replayHttp([
       token,
       { request: { url: `${API}/v1/reservations?limit=2&offset=0` }, response: { body: { result: [reservation(1, '2026-10-01T10:00:00Z')] } } },
+      { request: { url: `${API}/v1/reservations?limit=2&offset=1` }, response: { body: { result: [] } } },
     ])
     const host = memoryHost({ http, secrets, failApply: true })
     await expect(runSource(plugin, binding('b1'), 'reservations', host.ports)).rejects.toThrow('apply failed')
@@ -243,7 +247,7 @@ describe('runSource', () => {
       { request: { url: `${API}/v1/reservations` }, response: { body: { result: [{ id: 1 }] } } },
       { request: { url: `${API}/v1/reservations?cursor=same` }, response: { body: { result: [{ id: 2 }] } } },
     ])
-    await expect(runSource(looping, binding('b1'), 'people', memoryHost({ http }).ports)).rejects.toThrow(/did not advance/)
+    await expect(runSource(looping, binding('b1'), 'people', memoryHost({ http }).ports)).rejects.toThrow(/repeated an earlier value/)
   })
 })
 

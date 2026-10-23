@@ -1,11 +1,13 @@
 import type { JsonValue, Operation } from '@connector-hub/spec'
 import type { CompiledPlugin, CompiledSource } from './compile.js'
+import { bindingFor } from './config.js'
 import { ConnectorError } from './errors.js'
 import { buildRequest, call, type CallContext } from './http.js'
 import type { Binding, HostPorts, HttpRequest } from './ports.js'
+import { canonical, compareCursor, mismatch } from './values.js'
 
 export interface RunOptions {
-  /** Build and send reads, but apply nothing and save no state. Gives a preview. */
+  /** Send the reads, but apply nothing and save no cursor or snapshot. Gives a preview. */
   dryRun?: boolean
 }
 
@@ -16,6 +18,7 @@ export interface SourceResult {
   pages: number
   /** False when a page or record cap stopped the run early. The cursor is then not advanced. */
   complete: boolean
+  /** Every request sent, without auth. */
   requests: HttpRequest[]
   applied: boolean
 }
@@ -26,13 +29,14 @@ export interface SourceResult {
  */
 export async function runSource<Tx>(
   plugin: CompiledPlugin,
-  binding: Binding,
+  bindingInput: Binding,
   sourceName: string,
   ports: HostPorts<Tx>,
   options: RunOptions = {},
 ): Promise<SourceResult> {
   const source = plugin.sources.get(sourceName)
   if (!source) throw new ConnectorError('config', `unknown source ${sourceName}`)
+  const binding = bindingFor(plugin, bindingInput)
   const { limits } = plugin.declaration
   const origin = { plugin: plugin.declaration.plugin, version: plugin.declaration.version, source: sourceName }
 
@@ -40,6 +44,7 @@ export async function runSource<Tx>(
   const ctx: CallContext = { plugin, binding, ports: ports as HostPorts<never>, secrets: await ports.secrets.get(binding.id) }
   const operations: Operation[] = []
   const requests: HttpRequest[] = []
+  const seenPages = new Set<string>()
   let highest: JsonValue | null = previousCursor
   let page = firstPage(source)
   let pages = 0
@@ -59,6 +64,11 @@ export async function runSource<Tx>(
 
     const list = source.records.evaluate({ ...vars, response })
     if (!Array.isArray(list)) throw new ConnectorError('permanent', `sources.${sourceName}.records did not return a list`)
+    if (list.length > 0) {
+      const fingerprint = canonical(list as JsonValue[])
+      if (seenPages.has(fingerprint)) throw new ConnectorError('permanent', `sources.${sourceName}: the provider returned the same page twice`)
+      seenPages.add(fingerprint)
+    }
 
     for (const record of list as JsonValue[]) {
       if (++records > limits.max_records) {
@@ -69,7 +79,12 @@ export async function runSource<Tx>(
       for (const emit of source.emits) {
         if (emit.when && emit.when.evaluate(recordVars) !== true) continue
         const fields: Record<string, JsonValue> = {}
-        for (const [name, expr] of emit.fields) fields[name] = expr.evaluate(recordVars) as JsonValue
+        for (const [name, expr] of emit.fields) {
+          const value = (expr.evaluate(recordVars) ?? null) as JsonValue
+          const problem = mismatch(emit.types[name]!, value)
+          if (problem) throw new ConnectorError('permanent', `sources.${sourceName}: ${emit.entity}.${name} ${problem}`)
+          fields[name] = value
+        }
         const key: Record<string, JsonValue> = {}
         for (const k of emit.keyFields) {
           const v = fields[k]
@@ -80,11 +95,14 @@ export async function runSource<Tx>(
         }
         operations.push({ operation: emit.operation, entity: emit.entity, kind: emit.kind, key, fields, origin })
       }
-      if (source.cursor) highest = maxCursor(highest, source.cursor.evaluate({ record }) as JsonValue)
+      if (source.cursor) {
+        const value = source.cursor.evaluate({ record }) as JsonValue
+        if (value !== null && value !== undefined && (highest === null || compareCursor(value, highest) > 0)) highest = value
+      }
     }
     if (!complete) break
 
-    const next = nextPage(source, page, list.length, { ...vars, response })
+    const next = nextPage(source, page, list.length, { ...vars, response }, seenPages)
     if (next === null) break
     page = next
   }
@@ -94,7 +112,7 @@ export async function runSource<Tx>(
 
   await ports.transaction(async (tx) => {
     if (operations.length > 0) await ports.apply(operations, tx)
-    if (cursor !== null && JSON.stringify(cursor) !== JSON.stringify(previousCursor)) {
+    if (cursor !== null && canonical(cursor) !== canonical(previousCursor)) {
       await ports.saveCursor(binding.id, sourceName, cursor, tx)
     }
   })
@@ -116,27 +134,22 @@ function firstPage(source: CompiledSource): Page {
   }
 }
 
-function nextPage(source: CompiledSource, page: Page, count: number, vars: Record<string, unknown>): Page | null {
+/** The next page, or null when the source is exhausted. Offset and page paging stop on an empty page. */
+function nextPage(source: CompiledSource, page: Page, count: number, vars: Record<string, unknown>, seen: Set<string>): Page | null {
   switch (source.paginate.type) {
     case 'none':
       return null
     case 'offset':
-      return count < source.paginate.limit ? null : { offset: (page.offset as number) + count, limit: source.paginate.limit }
+      return count === 0 ? null : { offset: (page.offset as number) + count, limit: source.paginate.limit }
     case 'page':
       return count === 0 ? null : { number: (page.number as number) + 1 }
     case 'cursor': {
       const next = source.next!.evaluate(vars) as JsonValue
       if (next === null || next === undefined || next === '') return null
-      if (next === page.cursor) throw new ConnectorError('permanent', 'pagination cursor did not advance')
+      const id = `cursor:${canonical(next)}`
+      if (seen.has(id)) throw new ConnectorError('permanent', 'pagination cursor repeated an earlier value')
+      seen.add(id)
       return { cursor: next }
     }
   }
-}
-
-/** Keeps the highest cursor value. Numbers compare numerically, everything else as strings. */
-function maxCursor(current: JsonValue | null, candidate: JsonValue): JsonValue | null {
-  if (candidate === null || candidate === undefined) return current
-  if (current === null) return candidate
-  if (typeof current === 'number' && typeof candidate === 'number') return candidate > current ? candidate : current
-  return String(candidate) > String(current) ? candidate : current
 }

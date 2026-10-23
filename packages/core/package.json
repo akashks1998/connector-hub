@@ -1,30 +1,49 @@
 {
   "name": "@connector-hub/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Declarative connector engine: the host does all I/O, plugins only declare.",
+  "keywords": [
+    "connector-hub",
+    "integration",
+    "connector",
+    "sync",
+    "etl",
+    "declarative",
+    "cel"
+  ],
   "license": "Apache-2.0",
-  "type": "module",
-  "sideEffects": false,
-  "engines": {
-    "node": ">=20"
-  },
+  "author": "Akash Kumar Singh",
+  "homepage": "https://github.com/akashks1998/connector-hub/tree/main/packages/core#readme",
+  "bugs": "https://github.com/akashks1998/connector-hub/issues",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/akashks1998/connector-hub.git",
     "directory": "packages/core"
   },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "default": "./dist/index.js"
     }
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@connector-hub/spec": "workspace:*",
-    "@connector-hub/cel": "workspace:*",
-    "zod": "4.6.5"
+    "@connector-hub/spec": "workspace:^",
+    "@connector-hub/cel": "workspace:^",
+    "zod": "^4.1.0"
   }
 }

@@ -21,13 +21,13 @@ importers:
   domains/contacts:
     dependencies:
       '@connector-hub/spec':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/spec
 
   domains/str:
     dependencies:
       '@connector-hub/spec':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/spec
 
   examples:
@@ -45,34 +45,34 @@ importers:
   packages/cel:
     dependencies:
       '@marcbachmann/cel-js':
-        specifier: 8.0.0
+        specifier: ^8.0.0
         version: 8.0.0
 
   packages/core:
     dependencies:
       '@connector-hub/cel':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../cel
       '@connector-hub/spec':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../spec
       zod:
-        specifier: 4.6.5
+        specifier: ^4.1.0
         version: 4.6.5
 
   packages/spec:
     dependencies:
       zod:
-        specifier: 4.6.5
+        specifier: ^4.1.0
         version: 4.6.5
 
   packages/testkit:
     dependencies:
       '@connector-hub/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
       '@connector-hub/spec':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../spec
 
 packages:

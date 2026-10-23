@@ -5,10 +5,10 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.1.3",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && node packages/spec/scripts/build-schemas.mjs",
     "typecheck": "tsc -b && tsc -p examples",
     "test": "vitest run",
     "test:watch": "vitest",

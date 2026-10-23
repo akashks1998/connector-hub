@@ -40,6 +40,8 @@ export class ExpressionError extends Error {
 }
 
 const COMPREHENSIONS = new Set(['all', 'exists', 'exists_one', 'map', 'filter'])
+/** JavaScript regular expressions can backtrack exponentially, so `matches` is not offered. */
+const FORBIDDEN_FUNCTIONS = new Set(['matches'])
 
 export class CelEnvironment {
   readonly #env: Environment
@@ -67,7 +69,7 @@ export class CelEnvironment {
     if (!checked.valid) throw new ExpressionError(firstLine(checked.error), source)
 
     const refs = new Set<string>()
-    walk(parsed.ast, 0, this.#variables, refs, source)
+    walk(parsed.ast, 0, this.#variables, new Map(), refs, source)
 
     return {
       source,
@@ -103,69 +105,96 @@ export class CelEnvironment {
     return {
       source: template,
       refs,
-      evaluate: (context) =>
-        parts.map((p) => (typeof p === 'string' ? p : encodeURIComponent(String(p.evaluate(context))))).join(''),
+      evaluate: (context) => parts.map((p) => (typeof p === 'string' ? p : templateValue(p, context))).join(''),
     }
   }
 }
 
-/** Collects variable paths and rejects nested comprehensions, which make cost quadratic. */
-function walk(node: ASTNode, comprehensionDepth: number, variables: ReadonlySet<string>, refs: Set<string>, source: string): void {
-  const path = pathOf(node)
+/** One URL-encoded template hole. Lists, maps and `.`/`..` segments are refused. */
+function templateValue(part: CompiledExpression, context: Record<string, unknown>): string {
+  const value = part.evaluate(context)
+  if (value === null || value === undefined || typeof value === 'object') {
+    throw new ExpressionError(`template value must be a string, number or bool, got ${value === null ? 'null' : typeof value}`, part.source)
+  }
+  const text = String(value)
+  if (text === '' || text === '.' || text === '..') throw new ExpressionError(`template value ${JSON.stringify(text)} is not allowed in a path`, part.source)
+  return encodeURIComponent(text)
+}
+
+type Scope = ReadonlyMap<string, string>
+
+/**
+ * Collects variable paths and rejects nested comprehensions, which make cost
+ * quadratic. Inside `xs.map(x, …)`, `x.f` is recorded as `xs[].f`.
+ */
+function walk(node: ASTNode, depth: number, variables: ReadonlySet<string>, scope: Scope, refs: Set<string>, source: string): void {
+  const path = pathOf(node, scope)
   if (path !== null) {
-    if (variables.has(path.split('.')[0]!)) refs.add(path)
+    if (variables.has(path.split(/[.[]/)[0]!)) refs.add(path)
     return
   }
+  const next = (n: ASTNode, d = depth, s = scope) => walk(n, d, variables, s, refs, source)
   switch (node.op) {
     case 'value':
     case 'id':
       return
     case '.':
     case '.?':
-      return walk(node.args[0], comprehensionDepth, variables, refs, source)
+      return next(node.args[0])
     case 'call':
-      for (const a of node.args[1]) walk(a, comprehensionDepth, variables, refs, source)
+      if (FORBIDDEN_FUNCTIONS.has(node.args[0])) throw new ExpressionError(`"${node.args[0]}" is not available`, source)
+      for (const a of node.args[1]) next(a)
       return
     case 'rcall': {
       const [fn, receiver, args] = node.args
-      const isComprehension = COMPREHENSIONS.has(fn)
-      if (isComprehension && comprehensionDepth >= 1) {
-        throw new ExpressionError(`nested "${fn}" is not allowed; flatten the expression`, source)
+      if (FORBIDDEN_FUNCTIONS.has(fn)) throw new ExpressionError(`"${fn}" is not available`, source)
+      if (!COMPREHENSIONS.has(fn)) {
+        next(receiver)
+        for (const a of args) next(a)
+        return
       }
-      walk(receiver, comprehensionDepth, variables, refs, source)
-      for (const a of args) walk(a, comprehensionDepth + (isComprehension ? 1 : 0), variables, refs, source)
+      if (depth >= 1) throw new ExpressionError(`nested "${fn}" is not allowed; flatten the expression`, source)
+      next(receiver)
+      const [variable, ...body] = args
+      const base = pathOf(receiver, scope)
+      const inner = new Map(scope)
+      if (variable?.op === 'id') {
+        if (base !== null) inner.set(variable.args, `${base}[]`)
+        else inner.delete(variable.args)
+      }
+      for (const a of body) next(a, depth + 1, inner)
       return
     }
     case 'list':
-      for (const a of node.args) walk(a, comprehensionDepth, variables, refs, source)
+      for (const a of node.args) next(a)
       return
     case 'map':
       for (const [k, v] of node.args) {
-        walk(k, comprehensionDepth, variables, refs, source)
-        walk(v, comprehensionDepth, variables, refs, source)
+        next(k)
+        next(v)
       }
       return
     case '!_':
     case '-_':
-      return walk(node.args, comprehensionDepth, variables, refs, source)
+      return next(node.args)
     case '?:':
-      for (const a of node.args) walk(a, comprehensionDepth, variables, refs, source)
+      for (const a of node.args) next(a)
       return
     default:
-      for (const a of node.args as ASTNode[]) walk(a, comprehensionDepth, variables, refs, source)
+      for (const a of node.args as ASTNode[]) next(a)
   }
 }
 
 /** `a.b["c"].d` → `a.b.c.d`; anything that isn't a plain path → null. */
-function pathOf(node: ASTNode): string | null {
-  if (node.op === 'id') return node.args
+function pathOf(node: ASTNode, scope: Scope): string | null {
+  if (node.op === 'id') return scope.get(node.args) ?? node.args
   if (node.op === '.' || node.op === '.?') {
-    const base = pathOf(node.args[0])
+    const base = pathOf(node.args[0], scope)
     return base === null ? null : `${base}.${node.args[1]}`
   }
   if (node.op === '[]' || node.op === '[?]') {
     const [obj, key] = node.args
-    const base = pathOf(obj)
+    const base = pathOf(obj, scope)
     if (base !== null && key.op === 'value' && typeof key.args === 'string') return `${base}.${key.args}`
     return null
   }
@@ -187,8 +216,12 @@ export function toCel(value: unknown): unknown {
   return value
 }
 
-/** Back to plain JS: bigint → number when safe (string otherwise), Date → ISO string. */
+/**
+ * Back to plain JS: bigint → number when safe (string otherwise), Date → ISO
+ * string. Infinity and NaN have no JSON form and are refused.
+ */
 export function fromCel(value: unknown): unknown {
+  if (typeof value === 'number' && !Number.isFinite(value)) throw new Error(`result ${value} is not a finite number`)
   if (typeof value === 'bigint') {
     return value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER) ? Number(value) : value.toString()
   }

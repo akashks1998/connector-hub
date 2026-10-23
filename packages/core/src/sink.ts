@@ -1,12 +1,14 @@
 import type { JsonValue } from '@connector-hub/spec'
 import type { CompiledPlugin, CompiledSink } from './compile.js'
+import { bindingFor } from './config.js'
 import { ConnectorError } from './errors.js'
 import { buildRequest, call, type CallContext } from './http.js'
 import type { Binding, HostPorts, HttpRequest, Row } from './ports.js'
 import type { RunOptions } from './source.js'
+import { canonical } from './values.js'
 
 export interface Change {
-  /** Stable record key, `JSON.stringify` of the key values in key order. */
+  /** Stable record key, the JSON of the key values in key order. */
   key: string
   row: Row
   /** What the sink last wrote for this record, or null if never written. */
@@ -33,13 +35,14 @@ export interface SinkResult {
  */
 export async function runSink<Tx>(
   plugin: CompiledPlugin,
-  binding: Binding,
+  bindingInput: Binding,
   sinkName: string,
   ports: HostPorts<Tx>,
   options: RunOptions = {},
 ): Promise<SinkResult> {
   const sink = plugin.sinks.get(sinkName)
   if (!sink) throw new ConnectorError('config', `unknown sink ${sinkName}`)
+  const binding = bindingFor(plugin, bindingInput)
 
   const rows = await ports.read({ bindingId: binding.id, entity: sink.entity, fields: sink.visibleFields })
   const remote = await ports.state.getRemote(binding.id, sinkName)
@@ -54,9 +57,15 @@ export async function runSink<Tx>(
   const ctx: CallContext = { plugin, binding, ports: ports as HostPorts<never>, secrets: await ports.secrets.get(binding.id) }
   let sent = 0
   for (const batch of plan) {
-    const response = await call(ctx, batch.request)
-    if (sink.ack && sink.ack.evaluate({ ...batchVars(batch.key, batch.changes, binding), response }) !== true) {
-      throw new ConnectorError('permanent', `sinks.${sinkName}: provider did not acknowledge batch ${sent + 1} of ${plan.length}`)
+    const progress = `batch ${sent + 1} of ${plan.length}, ${sent} sent`
+    try {
+      const response = await call(ctx, batch.request)
+      if (sink.ack && sink.ack.evaluate({ ...batchVars(batch.key, batch.changes, binding), response }) !== true) {
+        throw new ConnectorError('permanent', `sinks.${sinkName}: provider did not acknowledge the batch`)
+      }
+    } catch (e) {
+      if (e instanceof ConnectorError) throw new ConnectorError(e.kind, `${e.message} (${progress})`, { ...e.details, cause: e, sent })
+      throw e
     }
     await ports.transaction((tx) => ports.saveRemote(binding.id, sinkName, new Map(batch.changes.map((c) => [c.key, c.row])), tx))
     sent++
@@ -66,11 +75,18 @@ export async function runSink<Tx>(
 
 function diff(sink: CompiledSink, rows: Row[], remote: Map<string, Row>, binding: Binding): Change[] {
   const out: Change[] = []
+  const seen = new Set<string>()
   for (const row of rows) {
     if (sink.where && sink.where.evaluate({ row, config: binding.config }) !== true) continue
-    const key = JSON.stringify(sink.keyFields.map((k) => row[k] ?? null))
+    for (const k of sink.keyFields) {
+      const v = row[k]
+      if (v === null || v === undefined || v === '') throw new ConnectorError('permanent', `sinks.${sink.name}: a ${sink.entity} row has an empty ${k}`)
+    }
+    const key = JSON.stringify(sink.keyFields.map((k) => row[k]))
+    if (seen.has(key)) throw new ConnectorError('permanent', `sinks.${sink.name}: two ${sink.entity} rows have the key ${key}`)
+    seen.add(key)
     const previous = remote.get(key) ?? null
-    const changed = previous === null || sink.declaredFields.some((f) => !equal(row[f] ?? null, previous[f] ?? null))
+    const changed = previous === null || sink.declaredFields.some((f) => canonical(row[f] ?? null) !== canonical(previous[f] ?? null))
     if (changed) out.push({ key, row, previous })
   }
   return out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
@@ -79,8 +95,12 @@ function diff(sink: CompiledSink, rows: Row[], remote: Map<string, Row>, binding
 function batches(sink: CompiledSink, changes: Change[], binding: Binding): Array<{ key: JsonValue | null; changes: Change[] }> {
   const groups = new Map<string, { key: JsonValue | null; changes: Change[] }>()
   for (const c of changes) {
-    const key = sink.by ? (sink.by.evaluate({ row: c.row, config: binding.config }) as JsonValue) : null
-    const id = JSON.stringify(key)
+    let key: JsonValue | null = null
+    if (sink.by) {
+      key = (sink.by.evaluate({ row: c.row, config: binding.config }) ?? null) as JsonValue
+      if (key === null || key === '') throw new ConnectorError('permanent', `sinks.${sink.name}: batch.by is empty for ${c.key}`)
+    }
+    const id = canonical(key)
     const group = groups.get(id) ?? { key, changes: [] }
     group.changes.push(c)
     groups.set(id, group)
@@ -100,8 +120,4 @@ function pick(row: Row, fields: string[]): Row {
   const out: Row = {}
   for (const f of fields) if (f in row) out[f] = row[f]!
   return out
-}
-
-function equal(a: JsonValue, b: JsonValue): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
 }

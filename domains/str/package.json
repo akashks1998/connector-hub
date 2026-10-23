@@ -1,13 +1,44 @@
 {
   "name": "@connector-hub/domain-str",
-  "version": "0.0.0",
-  "description": "Short-term rental domain pack: listings, calendar days, booking revisions.",
+  "version": "0.1.0",
+  "description": "Short-term rental domain pack for connector-hub: listings, calendar days and bookings.",
+  "keywords": [
+    "connector-hub",
+    "short-term-rental",
+    "vacation-rental",
+    "domain-pack"
+  ],
   "license": "Apache-2.0",
+  "author": "Akash Kumar Singh",
+  "homepage": "https://github.com/akashks1998/connector-hub/tree/main/domains/str#readme",
+  "bugs": "https://github.com/akashks1998/connector-hub/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akashks1998/connector-hub.git",
+    "directory": "domains/str"
+  },
   "type": "module",
   "sideEffects": false,
-  "engines": { "node": ">=20" },
-  "repository": { "type": "git", "url": "git+https://github.com/akashks1998/connector-hub.git", "directory": "domains/str" },
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist"],
-  "dependencies": { "@connector-hub/spec": "workspace:*" }
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@connector-hub/spec": "workspace:^"
+  }
 }

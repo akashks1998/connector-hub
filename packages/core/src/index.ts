@@ -1,6 +1,7 @@
 export { compilePlugin } from './compile.js'
-export type { CompiledPlugin, CompiledSink, CompiledSource } from './compile.js'
+export type { CompiledAuth, CompiledEmit, CompiledPlugin, CompiledRequest, CompiledSink, CompiledSource } from './compile.js'
 export { ConnectorError, PluginValidationError, type ErrorKind } from './errors.js'
 export type { Binding, CachedToken, HostPorts, HttpRequest, HttpResponse, Row } from './ports.js'
 export { runSource, type RunOptions, type SourceResult } from './source.js'
 export { runSink, type Change, type PlannedBatch, type SinkResult } from './sink.js'
+export { ExpressionError } from '@connector-hub/cel'

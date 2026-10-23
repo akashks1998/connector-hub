@@ -24,6 +24,7 @@ export type Row = Record<string, JsonValue>
 
 export interface CachedToken {
   value: string
+  /** When the engine stops using the token, already a little before it really expires. */
   expiresAt: Date
 }
 
@@ -36,7 +37,7 @@ export interface HostPorts<Tx = unknown> {
     /** Must enforce the timeout and body limit, and must not follow redirects. */
     send(request: HttpRequest, limits: { timeoutMs: number; maxBodyBytes: number }): Promise<HttpResponse>
   }
-  /** Secret config values for a binding, as declared with `secret: true`. */
+  /** Secret config values for a binding, as declared with `secret: true`. Values are redacted from error messages. */
   secrets: { get(bindingId: string): Promise<Record<string, string>> }
   /** Cache for access tokens obtained by auth presets. */
   tokens: {
@@ -54,6 +55,7 @@ export interface HostPorts<Tx = unknown> {
   transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>
   apply(operations: Operation[], tx: Tx): Promise<void>
   saveCursor(bindingId: string, source: string, cursor: JsonValue, tx: Tx): Promise<void>
+  /** Merges `rows` into the sink's snapshot. Keys not in `rows` keep their saved values. */
   saveRemote(bindingId: string, sink: string, rows: Map<string, Row>, tx: Tx): Promise<void>
   /** Optional shared rate budget per plugin. Resolves when a request may be sent. */
   budget?: { take(plugin: string): Promise<void> }

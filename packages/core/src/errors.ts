@@ -16,7 +16,13 @@ export class ConnectorError extends Error {
   constructor(
     readonly kind: ErrorKind,
     message: string,
-    readonly details: { retryAfterMs?: number; status?: number; cause?: unknown } = {},
+    readonly details: {
+      retryAfterMs?: number
+      status?: number
+      /** For a failed sink run: batches acknowledged before the failure. */
+      sent?: number
+      cause?: unknown
+    } = {},
   ) {
     super(message, { cause: details.cause })
     this.name = 'ConnectorError'

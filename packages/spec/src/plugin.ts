@@ -42,11 +42,12 @@ export const Auth = z.discriminatedUnion('type', [
 ])
 export type Auth = z.infer<typeof Auth>
 
+/** Plugins may lower these freely; the upper bounds keep one plugin from monopolising a host. */
 export const Limits = z.object({
-  timeout_ms: z.number().int().positive().default(15_000),
-  max_body_bytes: z.number().int().positive().default(8 * 1024 * 1024),
-  max_pages: z.number().int().positive().default(1_000),
-  max_records: z.number().int().positive().default(100_000),
+  timeout_ms: z.number().int().positive().max(120_000).default(15_000),
+  max_body_bytes: z.number().int().positive().max(64 * 1024 * 1024).default(8 * 1024 * 1024),
+  max_pages: z.number().int().positive().max(100_000).default(1_000),
+  max_records: z.number().int().positive().max(1_000_000).default(100_000),
   /** Requests per minute across every binding of this plugin. */
   requests_per_minute: z.number().int().positive().optional(),
 })
@@ -54,7 +55,7 @@ export type Limits = z.infer<typeof Limits>
 
 export const Request = z.object({
   method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
-  /** Path template relative to the first host, e.g. `/v1/listings/{row.listing_id}/calendar`. */
+  /** Path template relative to the first host, e.g. `/v1/listings/{batch.key}/calendar`. Sources may only GET or POST. */
   path: Template,
   query: z.record(z.string(), Cel).default({}),
   headers: z.record(z.string(), Cel).default({}),
@@ -65,7 +66,7 @@ export type Request = z.infer<typeof Request>
 
 export const Paginate = z.discriminatedUnion('type', [
   z.object({ type: z.literal('none') }),
-  /** Exposes `page.offset` and `page.limit`; stops when a page has fewer than `limit` records. */
+  /** Exposes `page.offset` and `page.limit`; stops on an empty page. */
   z.object({ type: z.literal('offset'), limit: z.number().int().positive() }),
   /** Exposes `page.number`; stops on an empty page. */
   z.object({ type: z.literal('page'), start: z.number().int().default(1) }),
