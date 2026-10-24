@@ -59,5 +59,13 @@ Batches are sent in order. For each one:
 Batches already acknowledged stay saved when a later one fails, so a retry
 sends only what is still different.
 
-Deleting rows on the provider is not supported yet: a row that disappears from
-your input is simply not sent.
+A row that disappears from the input is not sent, unless the sink sets
+`on_delete: send` (see [Plugin reference](plugin-reference.md#sinks)).
+
+## Precheck
+
+A sink can read the provider's current records for each batch before planning
+it (`precheck`). Changes its `allow` refuses come back in `conflicts` and are
+left unsaved, so a day someone changed on the provider is reported rather than
+overwritten. The Hostaway plugin uses it to close only open days and release
+only days it closed.

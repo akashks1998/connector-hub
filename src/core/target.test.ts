@@ -394,3 +394,75 @@ describe('0.1 domain sinks', () => {
     }
   })
 })
+
+describe('sink precheck', () => {
+  const T = 'https://api.target.test/v1'
+  const withCheck = {
+    plugin: 'checked',
+    version: '0.1.0',
+    engine: '^0.2',
+    hosts: [T],
+    config: { token: { secret: true } },
+    headers: { 'x-token': 'secrets.token' },
+    sinks: {
+      days: {
+        read: { path: '/days', records: 'response.body.days' },
+        key: 'row.date',
+        fields: ['date', 'closed'],
+        batch: { size: 10 },
+        precheck: {
+          request: { path: '/days', query: { from: 'batch.changes[0].row.date' } },
+          records: 'response.body',
+          key: 'remote.date',
+          allow: 'remote != null && remote.editor == "us"',
+        },
+        request: { method: 'PUT', path: '/days', body: '{"dates": batch.changes.map(c, c.row.date + ":" + c.remote.editor)}' },
+      },
+    },
+  } satisfies PluginInput
+  const bb = binding('b1')
+
+  it('sends only the changes `allow` passes, with the provider record as `remote`, and saves only those', async () => {
+    const plugin = compilePlugin(withCheck)
+    const http = replayHttp([
+      { request: { url: `${T}/days?from=2026-11-01` }, response: { body: [{ date: '2026-11-01', editor: 'us' }, { date: '2026-11-02', editor: 'them' }] } },
+      { request: { method: 'PUT', url: `${T}/days` }, response: { body: {} } },
+    ])
+    const target = replayTarget([
+      { request: { path: '/days' }, response: { body: { days: [{ date: '2026-11-01', closed: true }, { date: '2026-11-02', closed: true }, { date: '2026-11-03', closed: true }] } } },
+    ])
+    const h = memoryHost({ http, target, secrets: { b1: { token: 't' } } })
+    const result = await runSink(plugin, bb, 'days', h.ports)
+    expect(JSON.parse(http.sent[1]!.body!)).toEqual({ dates: ['2026-11-01:us'] })
+    // 11-02 is refused by allow; 11-03 has no provider record, so remote is null.
+    expect(result.conflicts.map((c) => [c.row.date, c.remote])).toEqual([
+      ['2026-11-02', { date: '2026-11-02', editor: 'them' }],
+      ['2026-11-03', null],
+    ])
+    expect([...h.remote.get('b1/days')!.keys()].sort()).toEqual(['#config', '["2026-11-01"]'])
+  })
+
+  it('sends nothing when every change is refused, and fails on a record keyed twice', async () => {
+    const plugin = compilePlugin(withCheck)
+    const read: TargetFixture = { request: { path: '/days' }, response: { body: { days: [{ date: '2026-11-01', closed: true }] } } }
+    const refused = memoryHost({
+      http: replayHttp([{ request: { url: `${T}/days?from=2026-11-01` }, response: { body: [{ date: '2026-11-01', editor: 'them' }] } }]),
+      target: replayTarget([read]),
+      secrets: { b1: { token: 't' } },
+    })
+    await expect(runSink(plugin, bb, 'days', refused.ports)).resolves.toMatchObject({ sent: 0, plan: [] })
+    const twice = memoryHost({
+      http: replayHttp([{ request: { url: `${T}/days?from=2026-11-01` }, response: { body: [{ date: '2026-11-01', editor: 'us' }, { date: '2026-11-01', editor: 'us' }] } }]),
+      target: replayTarget([read]),
+      secrets: { b1: { token: 't' } },
+    })
+    await expect(runSink(plugin, bb, 'days', twice.ports)).rejects.toThrow(/twice/)
+  })
+
+  it('refuses a precheck on a sink without read', () => {
+    const { read: _read, key: _key, fields: _fields, ...rest } = withCheck.sinks.days
+    const domainSink = { ...rest, input: { entity: 'calendar_day', fields: ['available'] } }
+    const declaration = { ...withCheck, engine: '^0.1', domain: { name: 'str', version: '^0.1' }, sinks: { days: domainSink } }
+    expect(() => compilePlugin(declaration as unknown as PluginInput, strDomain)).toThrow(/precheck: needs a sink with read/)
+  })
+})

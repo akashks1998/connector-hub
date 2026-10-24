@@ -17,6 +17,8 @@ Plugins can read and write through the host's own API (the target) instead of a 
 - CEL: `hmacSha256Hex`, `secureEquals`, `base64`, `uuidFrom`.
 - OAuth `not_before_ms`: wait before using a new token.
 - PriceLabs plugin (`src/plugins/pricelabs.ts`), with the `sync`, `calendar` and `hook` webhooks.
+- Sink `precheck`: read the provider's records per batch; changes `allow` refuses come back in `SinkResult.conflicts`, unsent and unsaved.
+- Hostaway plugin (`src/plugins/hostaway.ts`): reservations and closed nights in (poll and webhook), Propool's closed nights out with a note marker, guarded by a precheck.
 
 ## 0.1.0
 

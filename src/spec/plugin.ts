@@ -178,7 +178,27 @@ export const Sink = z
         by: Cel.optional(),
       })
       .default({ size: 50 }),
-    /** Variables: `batch.key`, `batch.changes` (list of `{row, previous, deleted}`), `config`, `now`. */
+    /**
+     * Target mode: read the provider's current values before each batch and send only the changes
+     * `allow` accepts, so an edit made at the provider since the last write is not overwritten.
+     * Refused changes are reported as conflicts and not saved, so the next run checks them again.
+     */
+    precheck: z
+      .object({
+        /** Provider request, variables as for `request`. */
+        request: Request,
+        /** CEL over `response`, `batch`, `config`, `now`: the provider's records. */
+        records: Cel,
+        /** CEL over `remote`: a record's key, the same value as the sink's `key`. */
+        key: Cel,
+        /** CEL over `change` (`{row, previous, deleted}`), `remote` (the record or null), `config`, `now`. */
+        allow: Cel,
+      })
+      .optional(),
+    /**
+     * Variables: `batch.key`, `batch.changes` (list of `{row, previous, deleted}`, plus `remote`
+     * with a precheck), `config`, `now`.
+     */
     request: Request,
     /** CEL over `response`; false fails the batch as permanent. Defaults to any 2xx. */
     ack: Cel.optional(),

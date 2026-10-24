@@ -25,6 +25,8 @@ export interface Change {
   previous: Row | null
   /** True when the row was written before and is now absent (`on_delete: send`). */
   deleted: boolean
+  /** With a precheck: the provider's current record for this key, or null. */
+  remote?: Row | null
 }
 
 export interface PlannedBatch {
@@ -38,6 +40,8 @@ export interface SinkResult {
   plan: PlannedBatch[]
   /** Batches sent and acknowledged. Their rows are saved as the new remote state. */
   sent: number
+  /** Changes a precheck refused because the provider's record changed. Not sent, not saved. */
+  conflicts: Change[]
   applied: boolean
 }
 
@@ -68,14 +72,17 @@ export async function runSink<Tx>(
   const configChanged = savedConfig !== undefined && savedConfig !== null && savedConfig.config !== config.config
   const remote = new Map([...stored].filter(([k, v]) => k !== CONFIG_KEY && v !== null))
   const { changes, forgotten } = diff(sink, rows, remote, binding, now, configChanged)
-  const plan = batches(sink, changes, binding, now).map(({ key, changes }) => ({
-    key,
-    changes,
-    request: buildRequest(plugin, sink.request, batchVars(key, changes, binding, now)),
-  }))
-  if (options.dryRun) return { plan, sent: 0, applied: false }
-
   const ctx: CallContext = { plugin, binding, ports: ports as HostPorts<never>, secrets: await secretsFor(plugin, binding, ports.secrets) }
+  const conflicts: Change[] = []
+  const plan: PlannedBatch[] = []
+  for (const group of batches(sink, changes, binding, now)) {
+    const checked = sink.mode === 'target' && sink.precheck ? await precheck(ctx, sink, group, binding, now) : { allowed: group.changes, refused: [] }
+    conflicts.push(...checked.refused)
+    if (checked.allowed.length === 0) continue
+    plan.push({ key: group.key, changes: checked.allowed, request: buildRequest(plugin, sink.request, batchVars(group.key, checked.allowed, binding, now)) })
+  }
+  if (options.dryRun) return { plan, sent: 0, conflicts, applied: false }
+
   let sent = 0
   for (const batch of plan) {
     const progress = `batch ${sent + 1} of ${plan.length}, ${sent} sent`
@@ -100,7 +107,43 @@ export async function runSink<Tx>(
     saved.set(CONFIG_KEY, config)
     await ports.transaction((tx) => ports.saveRemote(binding.id, sinkName, saved, tx))
   }
-  return { plan, sent, applied: true }
+  return { plan, sent, conflicts, applied: true }
+}
+
+/** Reads the provider's current records for a batch and splits its changes by the sink's `allow`. */
+async function precheck(
+  ctx: CallContext,
+  sink: CompiledTargetSink,
+  group: { key: JsonValue | null; changes: Change[] },
+  binding: Binding,
+  now: string,
+): Promise<{ allowed: Change[]; refused: Change[] }> {
+  const check = sink.precheck!
+  const where = `sinks.${sink.name}.precheck`
+  const vars = batchVars(group.key, group.changes, binding, now)
+  const response = await call(ctx, buildRequest(ctx.plugin, check.request, vars))
+  const list = check.records.evaluate({ ...vars, response })
+  if (!Array.isArray(list)) throw new ConnectorError('permanent', `${where}.records did not return a list`)
+  const remote = new Map<string, Row>()
+  for (const record of list as JsonValue[]) {
+    if (record === null || typeof record !== 'object' || Array.isArray(record)) throw new ConnectorError('permanent', `${where}: a record is not an object`)
+    const key = check.key.evaluate({ remote: record })
+    if (key === null || key === undefined || key === '' || (typeof key !== 'string' && typeof key !== 'number')) {
+      throw new ConnectorError('permanent', `${where}.key must give a non-empty string or number`)
+    }
+    const id = JSON.stringify([key])
+    if (remote.has(id)) throw new ConnectorError('permanent', `${where}: the provider returned the key ${id} twice`)
+    remote.set(id, record as Row)
+  }
+  const allowed: Change[] = []
+  const refused: Change[] = []
+  for (const c of group.changes) {
+    const current = remote.get(c.key) ?? null
+    const change = { ...c, remote: current }
+    const ok = check.allow.evaluate({ change: { row: c.row, previous: c.previous, deleted: c.deleted }, remote: current, config: binding.config, now })
+    ;(ok === true ? allowed : refused).push(change)
+  }
+  return { allowed, refused }
 }
 
 /** Sinks in an order that respects `after`, limited to `names`. */
@@ -244,7 +287,10 @@ function batches(sink: CompiledSink, changes: Change[], binding: Binding, now: s
 
 function batchVars(key: JsonValue | null, changes: Change[], binding: Binding, now: string) {
   return {
-    batch: { key, changes: changes.map((c) => ({ row: c.row, previous: c.previous, deleted: c.deleted })) },
+    batch: {
+      key,
+      changes: changes.map((c) => ({ row: c.row, previous: c.previous, deleted: c.deleted, ...(c.remote !== undefined && { remote: c.remote }) })),
+    },
     config: binding.config,
     now,
   }

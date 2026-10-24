@@ -92,6 +92,7 @@ export interface CompiledTargetSink extends CompiledSinkBase {
   key: CompiledExpression
   /** Fields compared with and saved as the last write; null for the whole row. */
   fields: string[] | null
+  precheck?: { request: CompiledRequest; records: CompiledExpression; key: CompiledExpression; allow: CompiledExpression }
 }
 
 export type CompiledSink = CompiledDomainSink | CompiledTargetSink
@@ -154,6 +155,9 @@ const envs = {
   row: { row: 'map', config: 'map', now: 'string' },
   batch: { batch: 'map', config: 'map', now: 'string' },
   ack: { response: 'map', batch: 'map', config: 'map', now: 'string' },
+  precheckRecords: { response: 'map', batch: 'map', config: 'map', now: 'string' },
+  precheckKey: { remote: 'map' },
+  precheckAllow: { change: 'map', remote: 'dyn', config: 'map', now: 'string' },
   webhookKey: { request: 'map' },
   webhookVerify: { request: 'map', config: 'map', secrets: 'map' },
   webhook: { request: 'map', config: 'map', now: 'string' },
@@ -363,11 +367,20 @@ export function compilePlugin(input: PluginInput | unknown, domainInput?: Domain
           ...(s.batch.by !== undefined && { by: compile('row', s.batch.by, `${where}.batch.by`) }),
           request: compileRequest(s.request, 'batch', `${where}.request`),
           ...(s.ack !== undefined && { ack: compile('ack', s.ack, `${where}.ack`) }),
+          ...(s.precheck && {
+            precheck: {
+              request: compileRequest(s.precheck.request, 'batch', `${where}.precheck.request`),
+              records: compile('precheckRecords', s.precheck.records, `${where}.precheck.records`),
+              key: compile('precheckKey', s.precheck.key, `${where}.precheck.key`),
+              allow: compile('precheckAllow', s.precheck.allow, `${where}.precheck.allow`),
+            },
+          }),
         })
       }
       continue
     }
     const input = s.input!
+    if (s.precheck) problems.push(`${where}.precheck: needs a sink with read`)
     if (s.key !== undefined || s.fields !== undefined || s.where !== undefined) {
       problems.push(`${where}: key, fields and where belong to sinks with read; use input.where`)
     }

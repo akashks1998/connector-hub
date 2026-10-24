@@ -123,10 +123,20 @@ A sink reads its rows either from the host (`input`, domain mode) or from the
 | `batch.by` | CEL | | over `row`, `config`, `now`; groups rows that share a request |
 | `request` | [request](#request) | required | variables: `batch`, `config`, `now` |
 | `ack` | CEL | any 2xx | over `response`, `batch`, `config`, `now`; `false` fails the batch |
+| `precheck.request` | [request](#request) | | target mode: a read sent per batch before anything is planned; variables as `request` |
+| `precheck.records` | CEL | with `precheck` | over `response`, `batch`, `config`, `now`; the provider's current records |
+| `precheck.key` | CEL | with `precheck` | over `remote`; must give the same key as the sink's `key` |
+| `precheck.allow` | CEL | with `precheck` | over `change`, `remote` (`null` when missing), `config`, `now`; `true` sends the change |
 
 A deleted change carries the whole row as last written. Changing the binding
 config sends every row again. A target read that returns one key twice (rows
 moved while paging) fails as `retryable`.
+
+With `precheck`, each batch first reads the provider's records for it. A change
+`allow` refuses is returned in `conflicts`, not sent and not saved, so the next
+run checks it again; this keeps a sink from overwriting what someone changed on
+the provider. Sent changes carry the record as `change.remote` in `request`. A
+precheck runs in a dry run too, since the plan depends on it.
 
 See [Sinks](sinks.md) for how diffs and batches work.
 

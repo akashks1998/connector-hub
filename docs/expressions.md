@@ -20,6 +20,9 @@ wrapped by `connector-hub/cel`.
 | `input.where`, `where`, `key`, `skip`, `batch.by` | `row`, `config`, `now` |
 | sink `request` | `batch`, `config`, `now` |
 | `ack` | `response`, `batch`, `config`, `now` |
+| `precheck.records` | `response`, `batch`, `config`, `now` |
+| `precheck.key` | `remote` |
+| `precheck.allow` | `change`, `remote`, `config`, `now` |
 | webhook `ping`, `binding`, `dedupe_key`, `order` | `request` |
 | webhook `verify` | `request`, `config`, `secrets` |
 | webhook `when`, `call`, `issue`, `reread.request` | `request`, `config`, `now` |
@@ -27,7 +30,9 @@ wrapped by `connector-hub/cel`.
 
 `response` is `{status, headers, body}` with `body` parsed as JSON.
 `page` depends on the [paging type](sources.md#paging). `batch` is
-`{key, changes}` where each change is `{row, previous, deleted}`.
+`{key, changes}` where each change is `{row, previous, deleted}`, plus `remote`
+when the sink has a `precheck`. `has()` cannot follow an index such as
+`batch.changes[0]`; use `"field" in batch.changes[0].remote` there.
 `request` is `{method, path, headers, query, body, raw_body}`: header names in
 lower case, `body` parsed as JSON (`null` when it is not JSON) and `raw_body` the
 exact text, for signatures.
