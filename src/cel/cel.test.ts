@@ -58,6 +58,15 @@ describe('evaluate', () => {
     expect(env.compile('daysBetween("2026-12-30", "2027-01-02")').evaluate({})).toBe(3)
   })
 
+  it('builds maps from pairs and drops null fields', () => {
+    expect(env.compile('compact({"a": 1, "b": null, "c": {"d": null}})').evaluate({})).toEqual({ a: 1, c: { d: null } })
+    expect(env.compile('compact(record)').evaluate({ record: { a: null, b: 'x' } })).toEqual({ b: 'x' })
+    expect(env.compile('fromEntries(record.ids.map(p, [p.code, p.id]))').evaluate({ record: { ids: [{ code: 'airbnb', id: '1' }] } })).toEqual({ airbnb: '1' })
+    expect(env.compile('size(fromEntries([]))').evaluate({})).toBe(0)
+    expect(() => env.compile('fromEntries([["a", 1], ["a", 2]])').evaluate({})).toThrow(/twice/)
+    expect(() => env.compile('fromEntries([[1, 1]])').evaluate({})).toThrow(/pairs/)
+  })
+
   it('builds maps and lists', () => {
     const e = env.compile('{"date": row.date, "price": row.price, "flags": [row.open, false]}')
     expect(e.evaluate({ row: { date: '2026-10-01', price: 100, open: true } })).toEqual({

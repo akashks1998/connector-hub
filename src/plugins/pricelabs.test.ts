@@ -12,11 +12,21 @@ const b = binding('b1', {
   unit_id: UNIT,
   pricelabs_listing_id: 'PL_42',
   user_email: 'owner@example.com',
-  city: 'Phuket',
-  country: 'THA',
   currency: 'THB',
   timezone: 'Asia/Bangkok',
 })
+const unit = {
+  id: UNIT,
+  title: 'Sea View 2BR',
+  bedrooms: 2,
+  cleaningFeeMinor: 80000,
+  location: { city: 'Phuket', countryCode: 'TH', latitude: 7.89, longitude: 98.3 },
+  platformListings: [
+    { channelCode: 'airbnb', externalId: '1234', url: 'https://airbnb.com/rooms/1234' },
+    { channelCode: 'booking_com', externalId: '55', url: null },
+    { channelCode: 'agoda', externalId: 'ag-9', url: null },
+  ],
+}
 
 const day = (date: string, extra: Record<string, unknown> = {}) => ({
   date,
@@ -50,10 +60,10 @@ const booking = (extra: Record<string, unknown> = {}) => ({
 
 function target(days: unknown[], bookings: unknown[], blocks: unknown[]): TargetFixture[] {
   return [
-    { request: { path: `/rental-units/${UNIT}` }, response: { body: { id: UNIT, title: 'Sea View 2BR', latitude: 7.89, longitude: 98.3 } } },
+    { request: { path: `/rental-units/${UNIT}` }, response: { body: unit } },
     { request: { path: `/rental-units/${UNIT}/calendar?from=2026-10-25&to=2027-10-24` }, response: { body: { days } } },
     { request: { path: `/rental-units/${UNIT}/calendar?from=2027-10-25&to=2028-10-23` }, response: { body: { days: [] } } },
-    { request: { path: `/bookings?listingId=${UNIT}&limit=100` }, response: { body: { data: bookings, nextCursor: null } } },
+    { request: { path: `/bookings?listingId=${UNIT}&limit=100&sort=id` }, response: { body: { data: bookings, nextCursor: null } } },
     { request: { path: `/rental-units/${UNIT}/blocks?from=2020-01-01` }, response: { body: { data: blocks } } },
   ]
 }
@@ -96,6 +106,13 @@ describe('pricelabs plugin', () => {
               name: 'Sea View 2BR',
               status: 'available',
               location: { latitude: 7.89, longitude: 98.3, city: 'Phuket', country: 'THA' },
+              number_of_bedrooms: 2,
+              listing_fees: { cleaning_fee: { type: 'fixed', value: 800, currency: 'THB' } },
+              ota_listing_ids: {
+                airbnb: { id: '1234', url: 'https://airbnb.com/rooms/1234' },
+                bookingcom: { id: '55' },
+                other: { agoda: { id: 'ag-9' } },
+              },
             },
           ],
         },
@@ -190,5 +207,36 @@ describe('pricelabs plugin', () => {
     expect(bodies[1].reservations[0].data[0]).toMatchObject({ status: 'canceled' })
     expect(bodies[2].reservations[0].data[0]).toMatchObject({ reservation_id: 'propool_block_blk1', status: 'canceled' })
     expect([...next.remote.get('b1/blocks')!.keys()]).toEqual(['#config'])
+  })
+  it('leaves out what the unit lacks, and a binding city or country wins', async () => {
+    const bare = { ...unit, bedrooms: null, cleaningFeeMinor: null, platformListings: [] }
+    const http = replayHttp([accepted('/listings')])
+    const { ports } = memoryHost({
+      http,
+      target: replayTarget([{ request: { path: `/rental-units/${UNIT}` }, response: { body: bare } }]),
+      secrets,
+      now: NOW,
+    })
+    const custom = binding('b1', { ...b.config, city: 'Karon', country: 'THA' })
+    await runSinks(plugin, custom, ['listing'], ports)
+    expect(JSON.parse(http.sent[0]!.body!).listings[0]).toEqual({
+      listing_id: 'PL_42',
+      user_token: 'owner@example.com',
+      name: 'Sea View 2BR',
+      status: 'available',
+      location: { latitude: 7.89, longitude: 98.3, city: 'Karon', country: 'THA' },
+    })
+  })
+
+  it('fails the listing rather than send a unit with no location', async () => {
+    const { ports } = memoryHost({
+      http: replayHttp([]),
+      target: replayTarget([
+        { request: { path: `/rental-units/${UNIT}` }, response: { body: { ...unit, location: { ...unit.location, latitude: null } } } },
+      ]),
+      secrets,
+      now: NOW,
+    })
+    await expect(runSinks(plugin, b, ['listing'], ports)).rejects.toThrow()
   })
 })

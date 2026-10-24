@@ -329,6 +329,27 @@ const BUILTIN_FUNCTIONS: CelFunction[] = [
       return BigInt(digits ?? 2)
     }) as never,
   },
+  {
+    signature: 'compact(map): map',
+    description: 'The map without its null-valued keys, for payloads where an optional field must be left out, not sent as null.',
+    handler: ((value: unknown) => {
+      if (value instanceof Map) return new Map([...value].filter(([, v]) => v !== null))
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([, v]) => v !== null))
+    }) as never,
+  },
+  {
+    signature: 'fromEntries(list): map',
+    description: 'A map from a list of [key, value] pairs with string keys, e.g. ids keyed by platform. A repeated key is an error.',
+    handler: ((pairs: unknown[]) => {
+      const out = new Map<string, unknown>()
+      for (const pair of pairs) {
+        if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== 'string') throw new Error('fromEntries needs [string, value] pairs')
+        if (out.has(pair[0])) throw new Error(`fromEntries got the key ${pair[0]} twice`)
+        out.set(pair[0], pair[1])
+      }
+      return out
+    }) as never,
+  },
 ]
 
 function firstLine(error: unknown): string {

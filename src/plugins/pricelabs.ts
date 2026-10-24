@@ -9,9 +9,13 @@ import type { PluginInput } from '../spec/index.js'
  * PriceLabs takes 730 nights and the public calendar returns at most 366, hence two
  * calendar sinks.
  *
- * Not yet in the public API, so not sent: bedrooms, OTA listing ids, cleaning fee, and the
- * creation time of blocks. `city`, `country` and `currency` come from the binding.
+ * Bedrooms, the cleaning fee and platform ids are left out when the unit has none. Not in the
+ * public API, so not sent: the creation time of blocks. `currency` comes from the binding.
  */
+// PriceLabs takes alpha-3 countries; the units Propool serves today. A binding's `country` wins.
+const alpha3 = `{"AE": "ARE", "TH": "THA", "SG": "SGP", "MY": "MYS", "ID": "IDN", "VN": "VNM", "PH": "PHL", "GB": "GBR", "US": "USA"}`
+const r = 'batch.changes[0].row'
+const ota = '["airbnb", "vrbo", "booking_com"]'
 const reservationAck = '!has(response.body.failure) || size(response.body.failure) == 0'
 const today = 'dateIn(now, config.timezone)'
 
@@ -55,8 +59,8 @@ export const pricelabsPlugin = {
     unit_id: { description: 'The Propool rental unit' },
     pricelabs_listing_id: { description: 'The listing id PriceLabs knows the unit by' },
     user_email: { description: "The customer's PriceLabs account email" },
-    city: {},
-    country: { description: 'ISO 3166 alpha-3, e.g. THA' },
+    city: { required: false, description: "Overrides the unit's own city" },
+    country: { required: false, description: "ISO 3166 alpha-3, e.g. THA; overrides the unit's own country" },
     currency: { description: 'ISO 4217, e.g. THB' },
     timezone: { description: "The unit's IANA time zone, e.g. Asia/Bangkok" },
   },
@@ -68,15 +72,27 @@ export const pricelabsPlugin = {
     listing: {
       read: { path: '/rental-units/{config.unit_id}', records: '[response.body]' },
       key: 'row.id',
-      fields: ['id', 'title', 'latitude', 'longitude'],
+      fields: ['id', 'title', 'bedrooms', 'cleaningFeeMinor', 'location', 'platformListings'],
       batch: { size: 1 },
       request: {
         method: 'POST',
         path: '/listings',
-        body: `{"listings": batch.changes.map(c, {"listing_id": config.pricelabs_listing_id,
-          "user_token": config.user_email, "name": c.row.title, "status": "available",
-          "location": {"latitude": double(c.row.latitude), "longitude": double(c.row.longitude),
-                       "city": config.city, "country": config.country}})}`,
+        // One unit per binding, so the one changed row is addressed directly (nested maps are refused).
+        body: `{"listings": [compact({"listing_id": config.pricelabs_listing_id,
+          "user_token": config.user_email, "name": ${r}.title, "status": "available",
+          "location": {"latitude": double(${r}.location.latitude), "longitude": double(${r}.location.longitude),
+            "city": config.city != null ? config.city : ${r}.location.city,
+            "country": config.country != null ? config.country : ${alpha3}[${r}.location.countryCode]},
+          "number_of_bedrooms": ${r}.bedrooms,
+          "listing_fees": ${r}.cleaningFeeMinor == null ? dyn(null) : dyn({"cleaning_fee": {"type": "fixed",
+            "value": fromMinor(int(${r}.cleaningFeeMinor), currencyDigits(config.currency)), "currency": config.currency}}),
+          "ota_listing_ids": size(${r}.platformListings) == 0 ? dyn(null) : dyn(compact(fromEntries(
+            ${r}.platformListings.filter(p, p.channelCode in ${ota}).map(p,
+              [p.channelCode == "booking_com" ? "bookingcom" : p.channelCode, compact({"id": p.externalId, "url": p.url})])
+            + [["other", ${r}.platformListings.exists(p, !(p.channelCode in ${ota}))
+              ? dyn(fromEntries(${r}.platformListings.filter(p, !(p.channelCode in ${ota})).map(p,
+                  [p.channelCode, compact({"id": p.externalId, "url": p.url})])))
+              : dyn(null)]])))})]}`,
       },
       ack: '!has(response.body.errors) || size(response.body.errors) == 0',
     },
@@ -86,7 +102,8 @@ export const pricelabsPlugin = {
       after: ['listing'],
       read: {
         path: '/bookings',
-        query: { listingId: 'config.unit_id', limit: '100', cursor: 'page.cursor' },
+        // sort=id pages by keyset, so a booking revised mid-read is neither skipped nor read twice.
+        query: { listingId: 'config.unit_id', limit: '100', sort: '"id"', cursor: 'page.cursor' },
         records: 'response.body.data',
         paginate: { type: 'cursor', next: 'response.body.nextCursor' },
       },

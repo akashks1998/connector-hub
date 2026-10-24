@@ -7,7 +7,7 @@ Plugins can read and write through the host's own API (the target) instead of a 
 - Target mode: sinks `read` their rows from the target API (`key`, `fields`, `where`, paging); sources `call` it per record. New optional `target` port.
 - Sinks: `skip` (echo guard), `on_delete: send` with `deleted` changes, `after` ordering, `on` events; `orderSinks`, `sinksFor`, `runSinks`.
 - Plugin-level `headers`; `domain` is optional; source-level `when`.
-- CEL: `now`, `dateIn`, `addDays`, `daysBetween`, `upper`, `replaceAll`, `currencyDigits`.
+- CEL: `now`, `dateIn`, `addDays`, `daysBetween`, `upper`, `replaceAll`, `currencyDigits`, `compact`, `fromEntries`.
 - Sinks save the whole row and compare only `fields`, so deletions can use any field.
 - The snapshot records the binding config under the key `#config`; changing the config sends every row again. Target-mode sinks forget rows that are gone (`saveRemote` gets `null` for them); domain-mode sinks keep 0.1 behaviour.
 - Target paths are checked after rendering (no `//`, encoded `..`, backslash, `#`); target calls get the plugin's timeout and body limits.

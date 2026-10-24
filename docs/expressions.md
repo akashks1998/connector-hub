@@ -101,6 +101,8 @@ available:
 | `dateIn(string, string): string` | date of a timestamp in an IANA zone: `dateIn(now, "Asia/Bangkok")` |
 | `addDays(string, int): string` | `addDays("2026-12-31", 1)` → `"2027-01-01"` |
 | `currencyDigits(string): int` | minor-unit digits: `THB` → 2, `JPY` → 0 |
+| `compact(map): map` | drops null-valued keys, for optional fields a provider wants left out |
+| `fromEntries(list): map` | a map from `[key, value]` pairs, e.g. ids keyed by platform; a repeated key is an error |
 
 ## Limits
 
