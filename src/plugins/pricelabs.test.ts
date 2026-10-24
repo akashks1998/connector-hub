@@ -229,16 +229,25 @@ describe('pricelabs plugin', () => {
     })
   })
 
-  it('fails the listing rather than send a unit with no location', async () => {
-    const { ports } = memoryHost({
-      http: replayHttp([]),
-      target: replayTarget([
-        { request: { path: `/rental-units/${UNIT}` }, response: { body: { ...unit, location: { ...unit.location, latitude: null } } } },
-      ]),
-      secrets,
-      now: NOW,
-    })
-    await expect(runSinks(plugin, b, ['listing'], ports)).rejects.toThrow()
+  it('sends what a unit has, keeps the first listing per channel, and fails when PriceLabs refuses it', async () => {
+    const odd = {
+      ...unit,
+      location: { city: 'Tbilisi', countryCode: 'GE', latitude: null, longitude: 44.8 },
+      platformListings: [...unit.platformListings, { channelCode: 'airbnb', externalId: '999', url: null }, { channelCode: 'agoda', externalId: 'ag-2', url: null }],
+    }
+    const http = replayHttp([{ request: { method: 'POST', url: `${PL}/listings` }, response: { body: { successes: [], errors: [{ listing_id: 'PL_42', error: 'latitude is required' }] } } }])
+    const { ports } = memoryHost({ http, target: replayTarget([{ request: { path: `/rental-units/${UNIT}` }, response: { body: odd } }]), secrets, now: NOW })
+    await expect(runSinks(plugin, b, ['listing'], ports)).rejects.toMatchObject({ kind: 'permanent' })
+    const sent = JSON.parse(http.sent[0]!.body!).listings[0]
+    expect(sent.location).toEqual({ longitude: 44.8, city: 'Tbilisi' })
+    expect(sent.ota_listing_ids).toMatchObject({ airbnb: { id: '1234' }, other: { agoda: { id: 'ag-9' } } })
+  })
+
+  it('sends the binding city and country for a unit with no location', async () => {
+    const http = replayHttp([accepted('/listings')])
+    const { ports } = memoryHost({ http, target: replayTarget([{ request: { path: `/rental-units/${UNIT}` }, response: { body: { ...unit, location: null } } }]), secrets, now: NOW })
+    await runSinks(plugin, binding('b1', { ...b.config, city: 'Karon', country: 'THA' }), ['listing'], ports)
+    expect(JSON.parse(http.sent[0]!.body!).listings[0].location).toEqual({ city: 'Karon', country: 'THA' })
   })
 })
 
@@ -278,6 +287,9 @@ describe('pricelabs webhooks', () => {
       ],
     })
     await expect(handleWebhook(plugin, request, ports)).resolves.toMatchObject({ outcome: 'duplicate', status: 200 })
+    // A different delivery of an older batch is dropped too.
+    const older = sync.replace('06:00:00Z', '05:00:00Z')
+    await expect(handleWebhook(plugin, { ...request, headers: sign(older, 'req-2'), body: older }, ports)).resolves.toMatchObject({ outcome: 'stale' })
     expect(target.sent).toHaveLength(1)
   })
 

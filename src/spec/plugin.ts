@@ -223,9 +223,19 @@ export const Webhook = z
     path: z.string().regex(/^\/[a-z0-9_-]+(\/[a-z0-9_-]+)*$/, 'use a path like /sync'),
     /** CEL over `request`: true answers a provider's URL probe without verifying or acting. */
     ping: Cel.optional(),
+    /**
+     * CEL over `request`, checked before the binding is looked up: false acknowledges and ignores
+     * the request. For providers that post every event of an account to one URL.
+     */
+    filter: Cel.optional(),
     /** CEL over `request` giving the key the host finds the binding by, e.g. the provider listing id. */
     binding: Cel,
-    /** CEL over `request`, `config`, `secrets`; must be true. Use `secureEquals` for comparisons. */
+    /**
+     * `ignore` acknowledges a request whose binding is unknown or unreadable instead of refusing
+     * it, for account-wide webhooks that also carry listings no binding covers.
+     */
+    unknown_binding: z.enum(['refuse', 'ignore']).default('refuse'),
+    /** CEL over `request`, `config`, `secrets`, `now`; must be true. Use `secureEquals` for comparisons. */
     verify: Cel,
     /** CEL over `request`, `config`, `now`. Requests where it is false are acknowledged and ignored. */
     when: Cel.optional(),

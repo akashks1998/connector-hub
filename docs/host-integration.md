@@ -23,7 +23,7 @@ import type { HostPorts } from 'connector-hub'
 
 Node 22 or later. A binding's `config` may hold anything; only the fields the
 plugin declares (and not its secrets) are passed to its expressions.
-| `budget.take(plugin)` | optional, before each request | resolve when a request may go out |
+| `budget.take(plugin, bindingId)` | optional, before each request | resolve when a request may go out; group by provider account where the limit is per account (Hostaway) |
 | `clock.now()` | optional | for token expiry and `now`; defaults to the system clock |
 
 ## HTTP
@@ -102,8 +102,9 @@ return reply(result.status)
 
 The `webhooks` port finds a binding by the plugin's key (`binding`) and keeps
 the dedupe and order marks (`seen`/`remember`, `getMark`/`saveMark`) that
-plugins using `dedupe_key` or `order` need. Handle one request per binding at a
-time, so two deliveries of the same id cannot both pass the dedupe check. A
+plugins using `dedupe_key` or `order` need. Give it a `lock(bindingId, fn)`
+(a Postgres advisory lock, say) so two deliveries of one id cannot both pass the
+dedupe and order checks; without one, handle one request per webhook at a time. A
 thrown `ConnectorError` maps as for runs: answer 5xx for `retryable` so the
 provider retries.
 

@@ -134,7 +134,9 @@ export interface CompiledWebhook {
   name: string
   path: string
   ping?: CompiledExpression
+  filter?: CompiledExpression
   binding: CompiledExpression
+  unknownBinding: 'refuse' | 'ignore'
   verify: CompiledExpression
   when?: CompiledExpression
   dedupeKey?: CompiledExpression
@@ -159,7 +161,7 @@ const envs = {
   precheckKey: { remote: 'map' },
   precheckAllow: { change: 'map', remote: 'dyn', config: 'map', now: 'string' },
   webhookKey: { request: 'map' },
-  webhookVerify: { request: 'map', config: 'map', secrets: 'map' },
+  webhookVerify: { request: 'map', config: 'map', secrets: 'map', now: 'string' },
   webhook: { request: 'map', config: 'map', now: 'string' },
   webhookResponse: { response: 'map', request: 'map', config: 'map', now: 'string' },
 } satisfies Record<string, Record<string, CelType>>
@@ -451,7 +453,9 @@ export function compilePlugin(input: PluginInput | unknown, domainInput?: Domain
       name,
       path: w.path,
       ...(w.ping !== undefined && { ping: compile('webhookKey', w.ping, `${where}.ping`) }),
+      ...(w.filter !== undefined && { filter: compile('webhookKey', w.filter, `${where}.filter`) }),
       binding: compile('webhookKey', w.binding, `${where}.binding`),
+      unknownBinding: w.unknown_binding,
       verify: compile('webhookVerify', w.verify, `${where}.verify`),
       ...(w.when !== undefined && { when: compile('webhook', w.when, `${where}.when`) }),
       ...(w.dedupe_key !== undefined && { dedupeKey: compile('webhookKey', w.dedupe_key, `${where}.dedupe_key`) }),

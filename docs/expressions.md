@@ -114,11 +114,11 @@ available:
 | `addDays(string, int): string` | `addDays("2026-12-31", 1)` → `"2027-01-01"` |
 | `currencyDigits(string): int` | minor-unit digits: `THB` → 2, `JPY` → 0 |
 | `compact(map): map` | drops null-valued keys, for optional fields a provider wants left out |
-| `fromEntries(list): map` | a map from `[key, value]` pairs, e.g. ids keyed by platform; a repeated key is an error |
+| `fromEntries(list): map` | a map from `[key, value]` pairs, e.g. ids keyed by platform; a repeated key keeps its first value |
 | `hmacSha256Hex(string, string): string` | HMAC-SHA256 of a message (second) with a key (first), lowercase hex |
 | `secureEquals(string, string): bool` | constant-time comparison; use it for every signature or password check |
 | `base64(string): string` | base64 of the UTF-8 bytes, e.g. for a Basic header |
-| `uuidFrom(string): string` | a stable UUID derived from a string, e.g. an idempotency key from a delivery id |
+| `uuidFrom(string): string` | a stable UUID derived from a string (SHA-256, version-5 bits), e.g. an idempotency key from a delivery id |
 
 ## Limits
 

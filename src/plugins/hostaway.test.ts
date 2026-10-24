@@ -167,6 +167,8 @@ describe('hostaway plugin', () => {
         ],
       )
       const result = await runSink(plugin, b, 'calendar', h.ports)
+      // Each day is checked right before it is written.
+      expect(h.http.sent.map((r) => r.method)).toEqual(['GET', 'PUT', 'GET'])
       const puts = h.http.sent.filter((r) => r.method === 'PUT')
       expect(puts.map((r) => JSON.parse(r.body!))).toEqual([{ startDate: '2026-10-26', endDate: '2026-10-26', isAvailable: 0, note: `clean\n${MARK}` }])
       expect(result.conflicts.map((c) => c.row.date)).toEqual(['2026-10-27'])
@@ -211,7 +213,15 @@ describe('hostaway plugin', () => {
     const result = await handleWebhook(plugin, { method: 'POST', path: '/reservation', headers: auth, body }, h.ports)
     expect(result).toMatchObject({ outcome: 'done', bindingId: 'b1' })
     expect(JSON.parse(result.calls[0]!.body!)).toMatchObject({ status: 'confirmed', change: 'modified' })
-    const other = JSON.stringify({ event: 'message.received', data: { id: 1, listingMapId: 4242 } })
-    await expect(handleWebhook(plugin, { method: 'POST', path: '/reservation', headers: auth, body: other }, h.ports)).resolves.toMatchObject({ outcome: 'ignored' })
+    // The account's other events and listings are acknowledged, so Hostaway keeps the webhook on.
+    for (const other of [
+      { event: 'message.received', data: { id: 1 } },
+      { event: 'reservation.created', data: { id: 2, listingMapId: 7 } },
+      { event: 'reservation.created', data: { id: 3 } },
+    ]) {
+      await expect(
+        handleWebhook(plugin, { method: 'POST', path: '/reservation', headers: {}, body: JSON.stringify(other) }, h.ports),
+      ).resolves.toMatchObject({ outcome: 'ignored', status: 200 })
+    }
   })
 })

@@ -340,13 +340,12 @@ const BUILTIN_FUNCTIONS: CelFunction[] = [
   },
   {
     signature: 'fromEntries(list): map',
-    description: 'A map from a list of [key, value] pairs with string keys, e.g. ids keyed by platform. A repeated key is an error.',
+    description: 'A map from a list of [key, value] pairs with string keys, e.g. ids keyed by platform. A repeated key keeps its first value.',
     handler: ((pairs: unknown[]) => {
       const out = new Map<string, unknown>()
       for (const pair of pairs) {
         if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== 'string') throw new Error('fromEntries needs [string, value] pairs')
-        if (out.has(pair[0])) throw new Error(`fromEntries got the key ${pair[0]} twice`)
-        out.set(pair[0], pair[1])
+        if (!out.has(pair[0])) out.set(pair[0], pair[1])
       }
       return out
     }) as never,
@@ -372,7 +371,7 @@ const BUILTIN_FUNCTIONS: CelFunction[] = [
   },
   {
     signature: 'uuidFrom(string): string',
-    description: 'A stable UUID (version 5 layout) derived from a string, e.g. an idempotency key from a delivery id.',
+    description: 'A stable UUID derived from a string (SHA-256 based, with version-5 bits so UUID validators accept it), e.g. an idempotency key from a delivery id.',
     handler: ((text: string) => {
       const bytes = createHash('sha256').update(`connector-hub:${text}`).digest().subarray(0, 16)
       bytes[6] = (bytes[6]! & 0x0f) | 0x50

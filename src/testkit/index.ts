@@ -92,6 +92,12 @@ export function memoryHost(options: MemoryHostOptions) {
   const rows = options.rows ?? {}
   const seen = new Set<string>()
   const marks = new Map<string, JsonValue>()
+  const locks = new Map<string, Promise<unknown>>()
+  const locked = <T>(id: string, fn: () => Promise<T>): Promise<T> => {
+    const run = (locks.get(id) ?? Promise.resolve()).then(fn, fn)
+    locks.set(id, run.catch(() => undefined))
+    return run
+  }
 
   const ports: HostPorts<MemoryTx> = {
     http: options.http,
@@ -137,6 +143,7 @@ export function memoryHost(options: MemoryHostOptions) {
     ...(options.webhookBindings && {
       webhooks: {
         binding: async (_webhook: string, key: string) => options.webhookBindings![key] ?? null,
+        lock: locked,
         seen: async (id: string, webhook: string, key: string) => seen.has(`${id}/${webhook}/${key}`),
         remember: async (id: string, webhook: string, key: string) => void seen.add(`${id}/${webhook}/${key}`),
         getMark: async (id: string, webhook: string) => marks.get(`${id}/${webhook}`) ?? null,

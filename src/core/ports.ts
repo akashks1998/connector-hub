@@ -82,17 +82,19 @@ export interface HostPorts<Tx = unknown> {
   saveRemote(bindingId: string, sink: string, rows: Map<string, Row | null>, tx: Tx): Promise<void>
   /**
    * Incoming webhooks. `binding` finds the binding a request belongs to. The others are needed
-   * only by webhooks that declare `dedupe_key` or `order`; hosts should handle one request per
-   * binding at a time so two deliveries of the same id cannot both pass.
+   * only by webhooks that declare `dedupe_key` or `order`. `lock` runs its function while holding
+   * a per-binding lock (an advisory lock, say), so two deliveries of one id cannot both pass the
+   * dedupe and order checks; without it the host must serialise requests itself.
    */
   webhooks?: {
     binding(webhook: string, key: string): Promise<Binding | null>
+    lock?<T>(bindingId: string, fn: () => Promise<T>): Promise<T>
     seen?(bindingId: string, webhook: string, key: string): Promise<boolean>
     remember?(bindingId: string, webhook: string, key: string): Promise<void>
     getMark?(bindingId: string, webhook: string): Promise<JsonValue | null>
     saveMark?(bindingId: string, webhook: string, value: JsonValue): Promise<void>
   }
-  /** Optional shared rate budget per plugin. Resolves when a request may be sent. */
-  budget?: { take(plugin: string): Promise<void> }
+  /** Optional shared rate budget. Resolves when a request may be sent; hosts may group bindings that share a provider account. */
+  budget?: { take(plugin: string, bindingId: string): Promise<void> }
   clock?: { now(): Date }
 }

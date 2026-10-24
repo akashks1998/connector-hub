@@ -72,22 +72,38 @@ export async function runSink<Tx>(
   const configChanged = savedConfig !== undefined && savedConfig !== null && savedConfig.config !== config.config
   const remote = new Map([...stored].filter(([k, v]) => k !== CONFIG_KEY && v !== null))
   const { changes, forgotten } = diff(sink, rows, remote, binding, now, configChanged)
-  const ctx: CallContext = { plugin, binding, ports: ports as HostPorts<never>, secrets: await secretsFor(plugin, binding, ports.secrets) }
+  const checked = sink.mode === 'target' && sink.precheck ? sink : null
+  const groups = batches(sink, changes, binding, now)
   const conflicts: Change[] = []
   const plan: PlannedBatch[] = []
-  for (const group of batches(sink, changes, binding, now)) {
-    const checked = sink.mode === 'target' && sink.precheck ? await precheck(ctx, sink, group, binding, now) : { allowed: group.changes, refused: [] }
-    conflicts.push(...checked.refused)
-    if (checked.allowed.length === 0) continue
-    plan.push({ key: group.key, changes: checked.allowed, request: buildRequest(plugin, sink.request, batchVars(group.key, checked.allowed, binding, now)) })
+  // A precheck reads the provider, so it needs the secrets even in a dry run; other sinks don't.
+  let ctx: CallContext | null = null
+  const context = async () => (ctx ??= { plugin, binding, ports: ports as HostPorts<never>, secrets: await secretsFor(plugin, binding, ports.secrets) })
+  const planned = async (group: { key: JsonValue | null; changes: Change[] }): Promise<PlannedBatch | null> => {
+    const split = checked ? await precheck(await context(), checked, group, binding, now) : { allowed: group.changes, refused: [] }
+    conflicts.push(...split.refused)
+    if (split.allowed.length === 0) return null
+    return { key: group.key, changes: split.allowed, request: buildRequest(plugin, sink.request, batchVars(group.key, split.allowed, binding, now)) }
   }
-  if (options.dryRun) return { plan, sent: 0, conflicts, applied: false }
+  if (options.dryRun) {
+    for (const group of groups) {
+      const batch = await planned(group)
+      if (batch) plan.push(batch)
+    }
+    return { plan, sent: 0, conflicts, applied: false }
+  }
 
+  // Each batch is checked right before it is sent, so a long run never writes over a change
+  // the provider took while earlier batches were going out.
   let sent = 0
-  for (const batch of plan) {
-    const progress = `batch ${sent + 1} of ${plan.length}, ${sent} sent`
+  for (const [i, group] of groups.entries()) {
+    const batch = await planned(group)
+    if (!batch) continue
+    plan.push(batch)
+    const progress = `batch ${i + 1} of ${groups.length}, ${sent} sent`
+    const callCtx = await context()
     try {
-      const response = await call(ctx, batch.request)
+      const response = await call(callCtx, batch.request)
       if (sink.ack && sink.ack.evaluate({ ...batchVars(batch.key, batch.changes, binding, now), response }) !== true) {
         throw new ConnectorError('permanent', `sinks.${sinkName}: provider did not acknowledge the batch`)
       }
@@ -131,14 +147,15 @@ async function precheck(
     if (key === null || key === undefined || key === '' || (typeof key !== 'string' && typeof key !== 'number')) {
       throw new ConnectorError('permanent', `${where}.key must give a non-empty string or number`)
     }
-    const id = JSON.stringify([key])
+    // Matched as text, so a provider that sends "5" for the sink's 5 still lines up.
+    const id = String(key)
     if (remote.has(id)) throw new ConnectorError('permanent', `${where}: the provider returned the key ${id} twice`)
     remote.set(id, record as Row)
   }
   const allowed: Change[] = []
   const refused: Change[] = []
   for (const c of group.changes) {
-    const current = remote.get(c.key) ?? null
+    const current = remote.get(String(JSON.parse(c.key)[0])) ?? null
     const change = { ...c, remote: current }
     const ok = check.allow.evaluate({ change: { row: c.row, previous: c.previous, deleted: c.deleted }, remote: current, config: binding.config, now })
     ;(ok === true ? allowed : refused).push(change)

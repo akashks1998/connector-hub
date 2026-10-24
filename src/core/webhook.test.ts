@@ -69,6 +69,21 @@ describe('webhooks', () => {
     expect(h.marks.get('b1/reservation')).toBe(6)
   })
 
+  it('handles two deliveries at once one after the other, under the port lock', async () => {
+    const http = replayHttp([{ request: { url: `${API}/reservations/77` }, response: { body: { result: { id: 77, status: 'modified' } } } }])
+    const target = replayTarget([{ request: { method: 'PUT', path: '/bookings/by-provider/example/77' }, response: { body: {} } }])
+    const h = memoryHost({ http, target, secrets, webhookBindings: { 'acct-1': b } })
+    const results = await Promise.all([handleWebhook(plugin, event(3), h.ports), handleWebhook(plugin, event(3), h.ports)])
+    expect(results.map((r) => r.outcome)).toEqual(['done', 'stale'])
+    expect(target.sent).toHaveLength(1)
+  })
+
+  it('skips a reread record the provider no longer has', async () => {
+    const http = replayHttp([{ request: { url: `${API}/reservations/77` }, response: { body: { result: null } } }])
+    const h = memoryHost({ http, target: replayTarget([]), secrets, webhookBindings: { 'acct-1': b } })
+    await expect(handleWebhook(plugin, event(1), h.ports)).resolves.toMatchObject({ outcome: 'done', calls: [] })
+  })
+
   it('ignores events `when` rejects, after verifying them', async () => {
     const h = memoryHost({ http: replayHttp([]), secrets, webhookBindings: { 'acct-1': b } })
     await expect(handleWebhook(plugin, event(1, { event: 'message.received' }), h.ports)).resolves.toMatchObject({ outcome: 'ignored', status: 200 })

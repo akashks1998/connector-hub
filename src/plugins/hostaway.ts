@@ -144,7 +144,7 @@ export const hostawayPlugin = {
         path: '/listings/{config.hostaway_listing_id}/calendar',
         body: `{"startDate": ${change}.row.date, "endDate": ${change}.row.date,
           "isAvailable": ${change}.deleted ? 1 : 0,
-          "note": ${change}.deleted ? (${ownNote} == "" ? dyn(null) : dyn(${ownNote}))
+          "note": ${change}.deleted ? ${ownNote}
             : dyn(${ownNote} == "" ? ${marker} : ${ownNote} + "\\n" + ${marker})}`,
       },
       ack: 'response.body.status == "success"',
@@ -154,12 +154,17 @@ export const hostawayPlugin = {
     // Reservation created or updated. The payload only signals: the reservation is read again.
     reservation: {
       path: '/reservation',
+      // Hostaway posts every event of the account here, for every listing.
+      filter: '!has(request.body.event) || request.body.event in ["reservation.created", "reservation.updated"]',
       binding: 'string(has(request.body.data) ? request.body.data.listingMapId : request.body.listingMapId)',
+      unknown_binding: 'ignore',
       verify: 'secureEquals(request.headers.authorization, "Basic " + base64(config.webhook_login + ":" + secrets.webhook_password))',
-      when: '!has(request.body.event) || request.body.event in ["reservation.created", "reservation.updated"]',
       reread: {
         source: 'reservations',
-        request: { path: '/reservations/{string(has(request.body.data) ? request.body.data.id : request.body.objectId)}' },
+        // As the in-app handler: the record id is data.id, or the body's own id, or objectId.
+        request: {
+          path: '/reservations/{string(has(request.body.data) && has(request.body.data.id) ? request.body.data.id : has(request.body.id) ? request.body.id : request.body.objectId)}',
+        },
         records: '[response.body.result]',
       },
     },

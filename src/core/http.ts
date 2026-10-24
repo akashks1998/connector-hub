@@ -63,7 +63,7 @@ async function sendAuthorised(ctx: CallContext, request: HttpRequest, mayRefresh
 
 async function send(ctx: CallContext, request: HttpRequest): Promise<HttpResponse> {
   const { limits } = ctx.plugin.declaration
-  await ctx.ports.budget?.take(ctx.plugin.declaration.plugin)
+  await ctx.ports.budget?.take(ctx.plugin.declaration.plugin, ctx.binding.id)
   let response: HttpResponse
   try {
     response = await ctx.ports.http.send(request, { timeoutMs: limits.timeout_ms, maxBodyBytes: limits.max_body_bytes })
@@ -179,8 +179,9 @@ async function accessToken(
   // Stop using a token a little before it expires: 60 s, or half its life if that is shorter.
   const useForS = ttlS - Math.min(60, ttlS / 2)
   const token = { value: body.access_token, expiresAt: new Date(at.getTime() + useForS * 1000) }
-  await ctx.ports.tokens.put(ctx.binding.id, token)
+  // Wait before storing it too, so another worker reading the cache never gets a token too new to use.
   if (auth.notBeforeMs > 0) await new Promise((resolve) => setTimeout(resolve, auth.notBeforeMs))
+  await ctx.ports.tokens.put(ctx.binding.id, token)
   return token.value
 }
 

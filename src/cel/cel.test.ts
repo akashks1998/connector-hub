@@ -79,7 +79,7 @@ describe('evaluate', () => {
     expect(env.compile('compact(record)').evaluate({ record: { a: null, b: 'x' } })).toEqual({ b: 'x' })
     expect(env.compile('fromEntries(record.ids.map(p, [p.code, p.id]))').evaluate({ record: { ids: [{ code: 'airbnb', id: '1' }] } })).toEqual({ airbnb: '1' })
     expect(env.compile('size(fromEntries([]))').evaluate({})).toBe(0)
-    expect(() => env.compile('fromEntries([["a", 1], ["a", 2]])').evaluate({})).toThrow(/twice/)
+    expect(env.compile('fromEntries([["a", 1], ["a", 2]])').evaluate({})).toEqual({ a: 1 })
     expect(() => env.compile('fromEntries([[1, 1]])').evaluate({})).toThrow(/pairs/)
   })
 

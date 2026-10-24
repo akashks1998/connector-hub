@@ -136,7 +136,7 @@ With `precheck`, each batch first reads the provider's records for it. A change
 `allow` refuses is returned in `conflicts`, not sent and not saved, so the next
 run checks it again; this keeps a sink from overwriting what someone changed on
 the provider. Sent changes carry the record as `change.remote` in `request`. A
-precheck runs in a dry run too, since the plan depends on it.
+precheck runs in a dry run too, since the plan depends on it; in a real run each batch is checked right before it is sent.
 
 See [Sinks](sinks.md) for how diffs and batches work.
 
@@ -169,9 +169,11 @@ request is verified against its binding's secrets.
 | --- | --- | --- | --- |
 | `path` | string | required | e.g. `/sync`; unique per plugin |
 | `ping` | CEL | | over `request`; `true` answers a URL probe without verifying or acting |
+| `filter` | CEL | | over `request`, before the binding lookup; `false` acknowledges and ignores (account-wide webhooks) |
 | `binding` | CEL | required | over `request`; the key the host finds the binding by |
-| `verify` | CEL | required | over `request`, `config`, `secrets`; must be `true`, otherwise 401 |
-| `when` | CEL | | over `request`, `config`, `now`; `false` acknowledges and ignores |
+| `unknown_binding` | `refuse` `ignore` | `refuse` | `ignore` answers 200 for a binding key that is missing or unknown, instead of 400/404 |
+| `verify` | CEL | required | over `request`, `config`, `secrets`, `now`; must be `true`, otherwise 401 |
+| `when` | CEL | | over `request`, `config`, `now`; `false` acknowledges and ignores; an error answers 400 |
 | `dedupe_key` | CEL | | over `request`; a key already handled is acknowledged and ignored |
 | `order` | CEL | | over `request`; a value not greater than the last handled one is ignored |
 | `call` | [target request](#target-api) | | variables `request`, `config`, `now` |
@@ -181,7 +183,9 @@ request is verified against its binding's secrets.
 
 A webhook has exactly one of `call`, `reread`, `resend` and `issue`. Dedupe and
 order marks are saved only after the action succeeds, so a provider retry of a
-failed request is handled again.
+failed request is handled again. A `call` body or `issue` that cannot be built
+from the request answers 400 (`unreadable`); a reread record that comes back
+`null` is skipped.
 
 ## Compile-time checks
 

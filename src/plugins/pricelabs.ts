@@ -15,6 +15,8 @@ import type { PluginInput } from '../spec/index.js'
 // PriceLabs takes alpha-3 countries; the units Propool serves today. A binding's `country` wins.
 const alpha3 = `{"AE": "ARE", "TH": "THA", "SG": "SGP", "MY": "MYS", "ID": "IDN", "VN": "VNM", "PH": "PHL", "GB": "GBR", "US": "USA"}`
 const r = 'batch.changes[0].row'
+// `has()` cannot follow an index, hence `in`. A unit without a location sends the binding's own city and country.
+const hasLocation = `("location" in ${r} && ${r}.location != null)`
 const ota = '["airbnb", "vrbo", "booking_com"]'
 // PriceLabs signs every callback with the integration token: first the headers, then the body.
 const signed = `secureEquals(request.headers["x-pl-signed-headers"], "v1." + hmacSha256Hex(secrets.integration_token,
@@ -87,9 +89,15 @@ export const pricelabsPlugin = {
         // One unit per binding, so the one changed row is addressed directly (nested maps are refused).
         body: `{"listings": [compact({"listing_id": config.pricelabs_listing_id,
           "user_token": config.user_email, "name": ${r}.title, "status": "available",
-          "location": {"latitude": double(${r}.location.latitude), "longitude": double(${r}.location.longitude),
-            "city": config.city != null ? config.city : ${r}.location.city,
-            "country": config.country != null ? config.country : ${alpha3}[${r}.location.countryCode]},
+          "location": ${hasLocation} ? dyn(compact({
+            "latitude": ${r}.location.latitude == null ? dyn(null) : dyn(double(${r}.location.latitude)),
+            "longitude": ${r}.location.longitude == null ? dyn(null) : dyn(double(${r}.location.longitude)),
+            "city": config.city != null ? dyn(config.city) : dyn(${r}.location.city),
+            "country": config.country != null ? dyn(config.country)
+              : ${r}.location.countryCode != null && ${r}.location.countryCode in ${alpha3}
+              ? dyn(${alpha3}[${r}.location.countryCode]) : dyn(null)}))
+            : dyn(config.city == null && config.country == null ? dyn(null)
+              : dyn(compact({"city": config.city, "country": config.country}))),
           "number_of_bedrooms": ${r}.bedrooms,
           "listing_fees": ${r}.cleaningFeeMinor == null ? dyn(null) : dyn({"cleaning_fee": {"type": "fixed",
             "value": fromMinor(int(${r}.cleaningFeeMinor), currencyDigits(config.currency)), "currency": config.currency}}),
@@ -169,6 +177,8 @@ export const pricelabsPlugin = {
       binding: listingOf,
       verify: signed,
       dedupe_key: 'request.headers["x-pl-requestid"]',
+      // A replayed or late batch is dropped here too, not only by Propool's own check.
+      order: 'has(request.body.last_refreshed) ? request.body.last_refreshed : request.body.last_refreshed_at',
       call: {
         method: 'POST',
         path: '/rental-units/{config.unit_id}/rate-recommendations',
@@ -176,7 +186,7 @@ export const pricelabsPlugin = {
           "generatedAt": has(request.body.last_refreshed) ? request.body.last_refreshed : request.body.last_refreshed_at,
           "days": request.body.data.map(d, compact({"date": d.date,
             "rateMinor": toMinor(double(d.price), currencyDigits(config.currency)),
-            "minStay": has(d.min_stay) ? dyn(int(d.min_stay)) : dyn(null)}))}`,
+            "minStay": has(d.min_stay) && d.min_stay != null ? dyn(int(d.min_stay)) : dyn(null)}))}`,
       },
     },
     // PriceLabs asks for everything again.
