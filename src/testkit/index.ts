@@ -1,4 +1,4 @@
-import type { Binding, CachedToken, HostPorts, HttpRequest, HttpResponse, Row } from '../core/index.js'
+import type { Binding, CachedToken, HostPorts, HttpRequest, HttpResponse, Row, TargetHttpRequest } from '../core/index.js'
 import type { JsonValue, Operation } from '../spec/index.js'
 
 export interface Fixture {
@@ -29,6 +29,33 @@ export function replayHttp(fixtures: Fixture[]): HostPorts['http'] & { pending()
   }
 }
 
+export interface TargetFixture {
+  request: { method?: TargetHttpRequest['method']; path: string }
+  response: { status?: number; headers?: Record<string, string>; body?: JsonValue | string }
+}
+
+/**
+ * A fake target API. Each fixture answers one request, matched on method and path
+ * (query order ignored), in the order given. Every request, with its body, is kept in `sent`.
+ */
+export function replayTarget(fixtures: TargetFixture[]): NonNullable<HostPorts['target']> & { pending(): TargetFixture[]; sent: TargetHttpRequest[] } {
+  const queue = [...fixtures]
+  const sent: TargetHttpRequest[] = []
+  const base = 'https://target.invalid'
+  return {
+    sent,
+    pending: () => [...queue],
+    async send(request) {
+      sent.push(request)
+      const i = queue.findIndex((f) => (f.request.method ?? 'GET') === request.method && sameUrl(base + f.request.path, base + request.path))
+      if (i === -1) throw new Error(`no target fixture for ${request.method} ${request.path}`)
+      const [fixture] = queue.splice(i, 1)
+      const { status = 200, headers = {}, body = '' } = fixture!.response
+      return { status, headers, body: typeof body === 'string' ? body : JSON.stringify(body) } satisfies HttpResponse
+    },
+  }
+}
+
 function sameUrl(a: string, b: string): boolean {
   const ua = new URL(a)
   const ub = new URL(b)
@@ -40,11 +67,12 @@ function sameUrl(a: string, b: string): boolean {
 interface MemoryTx {
   operations: Operation[]
   cursors: Map<string, JsonValue>
-  remote: Map<string, Map<string, Row>>
+  remote: Map<string, Map<string, Row | null>>
 }
 
 export interface MemoryHostOptions {
   http: HostPorts['http']
+  target?: HostPorts['target']
   secrets?: Record<string, Record<string, string>>
   /** Rows returned to sinks, by entity. */
   rows?: Record<string, Row[]>
@@ -63,6 +91,7 @@ export function memoryHost(options: MemoryHostOptions) {
 
   const ports: HostPorts<MemoryTx> = {
     http: options.http,
+    ...(options.target && { target: options.target }),
     secrets: { get: async (id) => options.secrets?.[id] ?? {} },
     tokens: {
       get: async (id) => tokens.get(id) ?? null,
@@ -79,7 +108,14 @@ export function memoryHost(options: MemoryHostOptions) {
       const result = await fn(tx)
       applied.push(...tx.operations)
       for (const [k, v] of tx.cursors) cursors.set(k, v)
-      for (const [k, v] of tx.remote) remote.set(k, new Map([...(remote.get(k) ?? []), ...v]))
+      for (const [k, v] of tx.remote) {
+        const merged = new Map(remote.get(k) ?? [])
+        for (const [key, row] of v) {
+          if (row === null) merged.delete(key)
+          else merged.set(key, row)
+        }
+        remote.set(k, merged)
+      }
       return result
     },
     async apply(operations, tx) {

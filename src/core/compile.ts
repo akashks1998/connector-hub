@@ -2,6 +2,7 @@ import { CelEnvironment, ExpressionError, type CelType, type CompiledExpression 
 import {
   DomainPack,
   ENGINE_CONTRACT,
+  ENGINE_CONTRACTS,
   Plugin,
   satisfies,
   type Auth,
@@ -9,6 +10,7 @@ import {
   type Paginate,
   type PluginInput,
   type Request,
+  type TargetRequest,
 } from '../spec/index.js'
 import { z } from 'zod'
 import { ConnectorError, PluginValidationError } from './errors.js'
@@ -32,29 +34,67 @@ export interface CompiledEmit {
   fields: Array<[string, CompiledExpression]>
 }
 
+/** A request to the target API. The path template renders relative to the target root. */
+export interface CompiledTargetRequest {
+  method: TargetRequest['method']
+  path: CompiledExpression
+  query: Array<[string, CompiledExpression]>
+  body?: CompiledExpression
+}
+
 export interface CompiledSource {
   name: string
   request: CompiledRequest
   paginate: Paginate
   next?: CompiledExpression
   records: CompiledExpression
+  when?: CompiledExpression
   emits: CompiledEmit[]
+  call?: CompiledTargetRequest
   cursor?: CompiledExpression
 }
 
-export interface CompiledSink {
+export interface CompiledSinkRead {
+  request: CompiledTargetRequest
+  records: CompiledExpression
+  paginate: Paginate
+  next?: CompiledExpression
+}
+
+interface CompiledSinkBase {
   name: string
-  entity: string
-  keyFields: string[]
-  /** Exactly the fields the sink may see: its declared fields plus the entity key. */
-  visibleFields: string[]
-  declaredFields: string[]
   where?: CompiledExpression
+  skip?: CompiledExpression
+  on: string[]
+  /** Sinks that run before this one when both run. */
+  after: string[]
+  onDelete: 'ignore' | 'send'
   batchSize: number
   by?: CompiledExpression
   request: CompiledRequest
   ack?: CompiledExpression
 }
+
+/** Rows come from the host's `read` port, typed by a domain entity. */
+export interface CompiledDomainSink extends CompiledSinkBase {
+  mode: 'domain'
+  entity: string
+  keyFields: string[]
+  /** Exactly the fields the sink may see: its declared fields plus the entity key. */
+  visibleFields: string[]
+  declaredFields: string[]
+}
+
+/** Rows come from the target API. */
+export interface CompiledTargetSink extends CompiledSinkBase {
+  mode: 'target'
+  read: CompiledSinkRead
+  key: CompiledExpression
+  /** Fields compared with and saved as the last write; null for the whole row. */
+  fields: string[] | null
+}
+
+export type CompiledSink = CompiledDomainSink | CompiledTargetSink
 
 export type CompiledAuth =
   | { type: 'none' }
@@ -74,24 +114,28 @@ export type CompiledAuth =
 
 export interface CompiledPlugin {
   readonly declaration: Plugin
-  readonly domain: DomainPack
+  /** Null for a plugin that only talks to the target API. */
+  readonly domain: DomainPack | null
   /** Origin and path prefix of each host. Requests must fall under one of them. */
   readonly scopes: ReadonlyArray<{ origin: string; path: string }>
   readonly baseUrl: string
   readonly auth: CompiledAuth
+  /** Headers on every provider request, over `secrets` and `config`. */
+  readonly headers: ReadonlyArray<[string, CompiledExpression]>
   readonly sources: ReadonlyMap<string, CompiledSource>
   readonly sinks: ReadonlyMap<string, CompiledSink>
 }
 
+/** `now` is the run's start time as an ISO timestamp string, so expressions stay deterministic. */
 const envs = {
   auth: { secrets: 'map', config: 'map' },
-  request: { config: 'map', cursor: 'dyn', page: 'map' },
-  response: { response: 'map', config: 'map', cursor: 'dyn', page: 'map' },
-  record: { record: 'map', config: 'map', cursor: 'dyn' },
+  request: { config: 'map', cursor: 'dyn', page: 'map', now: 'string' },
+  response: { response: 'map', config: 'map', cursor: 'dyn', page: 'map', now: 'string' },
+  record: { record: 'map', config: 'map', cursor: 'dyn', now: 'string' },
   cursor: { record: 'map' },
-  row: { row: 'map', config: 'map' },
-  batch: { batch: 'map', config: 'map' },
-  ack: { response: 'map', batch: 'map', config: 'map' },
+  row: { row: 'map', config: 'map', now: 'string' },
+  batch: { batch: 'map', config: 'map', now: 'string' },
+  ack: { response: 'map', batch: 'map', config: 'map', now: 'string' },
 } satisfies Record<string, Record<string, CelType>>
 
 /** Headers the transport or an auth preset controls. */
@@ -108,10 +152,13 @@ const RESULT_SIZE_FACTOR = 2
  * Validates a plugin declaration against its domain pack and compiles every
  * expression. All problems are reported together.
  */
-export function compilePlugin(input: PluginInput | unknown, domainInput: DomainPack | unknown): CompiledPlugin {
-  const domainResult = DomainPack.safeParse(domainInput)
-  if (!domainResult.success) throw new PluginValidationError([`domain pack: ${z.prettifyError(domainResult.error)}`])
-  const domain = domainResult.data
+export function compilePlugin(input: PluginInput | unknown, domainInput?: DomainPack | unknown): CompiledPlugin {
+  let domain: DomainPack | null = null
+  if (domainInput !== undefined) {
+    const domainResult = DomainPack.safeParse(domainInput)
+    if (!domainResult.success) throw new PluginValidationError([`domain pack: ${z.prettifyError(domainResult.error)}`])
+    domain = domainResult.data
+  }
 
   const parsed = Plugin.safeParse(input)
   if (!parsed.success) throw new PluginValidationError(z.prettifyError(parsed.error).split('\n').filter(Boolean))
@@ -123,11 +170,21 @@ export function compilePlugin(input: PluginInput | unknown, domainInput: DomainP
     CelEnvironment
   >
 
-  if (!satisfies(ENGINE_CONTRACT, plugin.engine)) {
+  if (!ENGINE_CONTRACTS.some((c) => satisfies(c, plugin.engine))) {
     problems.push(`engine: plugin needs ${plugin.engine}, this engine implements ${ENGINE_CONTRACT}`)
   }
-  if (plugin.domain.name !== domain.domain || !satisfies(domain.version, plugin.domain.version)) {
-    problems.push(`domain: plugin needs ${plugin.domain.name} ${plugin.domain.version}, got ${domain.domain} ${domain.version}`)
+  if (plugin.domain) {
+    if (!domain) problems.push(`domain: plugin needs the ${plugin.domain.name} domain pack`)
+    else if (plugin.domain.name !== domain.domain || !satisfies(domain.version, plugin.domain.version)) {
+      problems.push(`domain: plugin needs ${plugin.domain.name} ${plugin.domain.version}, got ${domain.domain} ${domain.version}`)
+    }
+  }
+  // Only a plugin that declares a domain may use it.
+  const pack = plugin.domain ? domain : null
+  if (!pack) {
+    for (const [name, s] of Object.entries(plugin.sources)) if (s.emit.length > 0) problems.push(`sources.${name}.emit: needs a domain; use call`)
+    for (const [name, s] of Object.entries(plugin.sinks)) if (s.input) problems.push(`sinks.${name}.input: needs a domain; use read`)
+    if (Object.keys(plugin.owns).length > 0) problems.push('owns: needs a domain')
   }
 
   const secretKeys = new Set(Object.entries(plugin.config).filter(([, f]) => f.secret).map(([k]) => k))
@@ -155,18 +212,38 @@ export function compilePlugin(input: PluginInput | unknown, domainInput: DomainP
     }
   }
 
+  const compileHeaders = (headers: Record<string, string>, env: keyof typeof envs, where: string): Array<[string, CompiledExpression]> => {
+    for (const name of Object.keys(headers)) {
+      const lower = name.toLowerCase()
+      if (!HEADER_NAME.test(lower)) problems.push(`${where}: ${JSON.stringify(name)} is not a valid header name`)
+      else if (RESERVED_HEADERS.has(lower)) problems.push(`${where}: ${lower} is set by the engine or host`)
+    }
+    return Object.entries(headers).map(([k, v]) => [k.toLowerCase(), compile(env, v, `${where}.${k}`)])
+  }
+
   const compileRequest = (r: Request, env: 'request' | 'batch', where: string): CompiledRequest => {
     if (!r.path.startsWith('/')) problems.push(`${where}.path: must start with "/"`)
-    for (const name of Object.keys(r.headers)) {
-      const lower = name.toLowerCase()
-      if (!HEADER_NAME.test(lower)) problems.push(`${where}.headers: ${JSON.stringify(name)} is not a valid header name`)
-      else if (RESERVED_HEADERS.has(lower)) problems.push(`${where}.headers: ${lower} is set by the engine or host`)
-    }
     return {
       method: r.method,
       path: compile(env, r.path, `${where}.path`, true),
       query: Object.entries(r.query).map(([k, v]) => [k, compile(env, v, `${where}.query.${k}`)]),
-      headers: Object.entries(r.headers).map(([k, v]) => [k.toLowerCase(), compile(env, v, `${where}.headers.${k}`)]),
+      headers: compileHeaders(r.headers, env, `${where}.headers`),
+      ...(r.body !== undefined && { body: compile(env, r.body, `${where}.body`) }),
+    }
+  }
+
+  const compileTarget = (
+    r: { method?: TargetRequest['method']; path: string; query: Record<string, string>; body?: string },
+    env: 'request' | 'record',
+    where: string,
+  ): CompiledTargetRequest => {
+    if (!r.path.startsWith('/')) problems.push(`${where}.path: must start with "/"`)
+    // Holes are URL-encoded; literal text must not climb out of the target root.
+    if (r.path.split(/[/?]/).some((seg) => seg === '..' || seg === '.')) problems.push(`${where}.path: "." and ".." segments are not allowed`)
+    return {
+      method: r.method ?? 'GET',
+      path: compile(env, r.path, `${where}.path`, true),
+      query: Object.entries(r.query).map(([k, v]) => [k, compile(env, v, `${where}.query.${k}`)]),
       ...(r.body !== undefined && { body: compile(env, r.body, `${where}.body`) }),
     }
   }
@@ -185,8 +262,11 @@ export function compilePlugin(input: PluginInput | unknown, domainInput: DomainP
     if (!inScope) problems.push(`auth.token_url: ${tokenUrl.origin}${tokenUrl.pathname} is not under hosts`)
   }
 
+  const headers = compileHeaders(plugin.headers, 'auth', 'headers')
+
   for (const [entity, fields] of Object.entries(plugin.owns)) {
-    const def = domain.entities[entity]
+    const def = pack?.entities[entity]
+    if (!pack) continue
     if (!def) problems.push(`owns.${entity}: unknown entity`)
     else for (const f of fields) if (!(f in def.fields)) problems.push(`owns.${entity}: unknown field ${f}`)
   }
@@ -199,8 +279,8 @@ export function compilePlugin(input: PluginInput | unknown, domainInput: DomainP
     }
     const emits: CompiledEmit[] = s.emit.map((e, i) => {
       const w = `${where}.emit[${i}]`
-      const op = domain.operations[e.operation]
-      const entity = op && domain.entities[op.entity]
+      const op = pack?.operations[e.operation]
+      const entity = op && pack?.entities[op.entity]
       if (!op || !entity) {
         problems.push(`${w}: unknown operation ${e.operation}`)
         return { operation: e.operation, entity: '', kind: 'upsert', keyFields: [], types: {}, fields: [] }
@@ -223,7 +303,9 @@ export function compilePlugin(input: PluginInput | unknown, domainInput: DomainP
       paginate: s.paginate,
       ...(s.paginate.type === 'cursor' && { next: compile('response', s.paginate.next, `${where}.paginate.next`) }),
       records: compile('response', s.records, `${where}.records`),
+      ...(s.when !== undefined && { when: compile('record', s.when, `${where}.when`) }),
       emits,
+      ...(s.call && { call: compileTarget(s.call, 'record', `${where}.call`) }),
       ...(s.cursor && { cursor: compile('cursor', s.cursor.value, `${where}.cursor.value`) }),
     })
   }
@@ -231,17 +313,52 @@ export function compilePlugin(input: PluginInput | unknown, domainInput: DomainP
   const sinks = new Map<string, CompiledSink>()
   for (const [name, s] of Object.entries(plugin.sinks)) {
     const where = `sinks.${name}`
-    const entity = domain.entities[s.input.entity]
-    if (!entity) {
-      problems.push(`${where}.input.entity: unknown entity ${s.input.entity}`)
+    const common = {
+      name,
+      on: s.on,
+      after: s.after,
+      onDelete: s.on_delete,
+      batchSize: s.batch.size,
+    }
+    if (s.read) {
+      {
+        const read: CompiledSinkRead = {
+          request: compileTarget(s.read, 'request', `${where}.read`),
+          records: compile('response', s.read.records, `${where}.read.records`),
+          paginate: s.read.paginate,
+          ...(s.read.paginate.type === 'cursor' && { next: compile('response', s.read.paginate.next, `${where}.read.paginate.next`) }),
+        }
+        sinks.set(name, {
+          ...common,
+          mode: 'target',
+          read,
+          key: compile('row', s.key!, `${where}.key`),
+          fields: s.fields ?? null,
+          ...(s.where !== undefined && { where: compile('row', s.where, `${where}.where`) }),
+          ...(s.skip !== undefined && { skip: compile('row', s.skip, `${where}.skip`) }),
+          ...(s.batch.by !== undefined && { by: compile('row', s.batch.by, `${where}.batch.by`) }),
+          request: compileRequest(s.request, 'batch', `${where}.request`),
+          ...(s.ack !== undefined && { ack: compile('ack', s.ack, `${where}.ack`) }),
+        })
+      }
       continue
     }
-    for (const f of s.input.fields) if (!(f in entity.fields)) problems.push(`${where}.input.fields: unknown field ${f}`)
-    const owned = new Set(plugin.owns[s.input.entity] ?? [])
-    for (const f of s.input.fields) {
+    const input = s.input!
+    if (s.key !== undefined || s.fields !== undefined || s.where !== undefined) {
+      problems.push(`${where}: key, fields and where belong to sinks with read; use input.where`)
+    }
+    const entity = pack?.entities[input.entity]
+    if (!pack) continue
+    if (!entity) {
+      problems.push(`${where}.input.entity: unknown entity ${input.entity}`)
+      continue
+    }
+    for (const f of input.fields) if (!(f in entity.fields)) problems.push(`${where}.input.fields: unknown field ${f}`)
+    const owned = new Set(plugin.owns[input.entity] ?? [])
+    for (const f of input.fields) {
       if (owned.has(f)) problems.push(`${where}.input.fields: ${f} is owned by this plugin, so writing it back would echo`)
     }
-    const visible = [...new Set([...entity.key, ...s.input.fields])]
+    const visible = [...new Set([...entity.key, ...input.fields])]
     /** Rows are visible as `row`, and in requests as `batch.changes[].row` and `.previous`. */
     const checkRow = (expr: CompiledExpression, w: string) => {
       for (const ref of expr.refs) {
@@ -257,21 +374,56 @@ export function compilePlugin(input: PluginInput | unknown, domainInput: DomainP
       return r
     }
     sinks.set(name, {
-      name,
-      entity: s.input.entity,
+      ...common,
+      mode: 'domain',
+      entity: input.entity,
       keyFields: entity.key,
       visibleFields: visible,
-      declaredFields: s.input.fields,
-      ...(s.input.where !== undefined && { where: checkRow(compile('row', s.input.where, `${where}.input.where`), `${where}.input.where`) }),
-      batchSize: s.batch.size,
+      declaredFields: input.fields,
+      ...(input.where !== undefined && { where: checkRow(compile('row', input.where, `${where}.input.where`), `${where}.input.where`) }),
+      ...(s.skip !== undefined && { skip: checkRow(compile('row', s.skip, `${where}.skip`), `${where}.skip`) }),
       ...(s.batch.by !== undefined && { by: checkRow(compile('row', s.batch.by, `${where}.batch.by`), `${where}.batch.by`) }),
       request: checkRequest(compileRequest(s.request, 'batch', `${where}.request`), `${where}.request`),
       ...(s.ack !== undefined && { ack: checkRow(compile('ack', s.ack, `${where}.ack`), `${where}.ack`) }),
     })
   }
 
+  for (const [name, s] of Object.entries(plugin.sinks)) {
+    for (const a of s.after) {
+      if (a === name) problems.push(`sinks.${name}.after: a sink cannot run after itself`)
+      else if (!(a in plugin.sinks)) problems.push(`sinks.${name}.after: unknown sink ${a}`)
+    }
+  }
+  const cycle = findCycle(Object.fromEntries(Object.entries(plugin.sinks).map(([n, s]) => [n, s.after])))
+  if (cycle) problems.push(`sinks: after forms a cycle: ${cycle.join(' → ')}`)
+
   if (problems.length > 0) throw new PluginValidationError(problems)
-  return { declaration: plugin, domain, scopes, baseUrl, auth, sources, sinks }
+  return { declaration: plugin, domain: pack, scopes, baseUrl, auth, headers, sources, sinks }
+}
+
+/** The first cycle in a dependency graph, as a path that returns to its start, or null. */
+function findCycle(graph: Record<string, string[]>): string[] | null {
+  const state = new Map<string, 'visiting' | 'done'>()
+  const path: string[] = []
+  const visit = (node: string): string[] | null => {
+    if (state.get(node) === 'done') return null
+    if (state.get(node) === 'visiting') return [...path.slice(path.indexOf(node)), node]
+    state.set(node, 'visiting')
+    path.push(node)
+    for (const next of graph[node] ?? []) {
+      if (!(next in graph) || next === node) continue
+      const found = visit(next)
+      if (found) return found
+    }
+    path.pop()
+    state.set(node, 'done')
+    return null
+  }
+  for (const node of Object.keys(graph)) {
+    const found = visit(node)
+    if (found) return found
+  }
+  return null
 }
 
 /**

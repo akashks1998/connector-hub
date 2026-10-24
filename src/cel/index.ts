@@ -270,6 +270,45 @@ const BUILTIN_FUNCTIONS: CelFunction[] = [
       return m[1]
     }) as never,
   },
+  {
+    signature: 'upper(string): string',
+    handler: ((s: string) => s.toUpperCase()) as never,
+  },
+  {
+    signature: 'dateIn(string, string): string',
+    description: 'The calendar date (YYYY-MM-DD) of an ISO timestamp in an IANA time zone, e.g. dateIn(now, "Asia/Bangkok").',
+    handler: ((timestamp: string, zone: string) => {
+      const at = new Date(timestamp)
+      if (Number.isNaN(at.getTime())) throw new Error(`not an ISO timestamp: ${timestamp}`)
+      let format: Intl.DateTimeFormat
+      try {
+        format = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' })
+      } catch {
+        throw new Error(`unknown time zone: ${zone}`)
+      }
+      return format.format(at)
+    }) as never,
+  },
+  {
+    signature: 'addDays(string, int): string',
+    description: 'A YYYY-MM-DD date moved by a number of days.',
+    handler: ((date: string, days: bigint) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) throw new Error(`not a date: ${date}`)
+      if (days > 100_000n || days < -100_000n) throw new Error(`${days} days is out of range`)
+      const at = new Date(`${date}T00:00:00Z`)
+      at.setUTCDate(at.getUTCDate() + Number(days))
+      return at.toISOString().slice(0, 10)
+    }) as never,
+  },
+  {
+    signature: 'currencyDigits(string): int',
+    description: 'Minor-unit digits of an ISO 4217 currency, e.g. 2 for THB, 0 for JPY.',
+    handler: ((code: string) => {
+      if (!/^[A-Z]{3}$/.test(code)) throw new Error(`not a currency code: ${code}`)
+      const digits = new Intl.NumberFormat('en', { style: 'currency', currency: code }).resolvedOptions().maximumFractionDigits
+      return BigInt(digits ?? 2)
+    }) as never,
+  },
 ]
 
 function firstLine(error: unknown): string {

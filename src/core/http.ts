@@ -91,7 +91,7 @@ function classify(response: HttpResponse, at: Date): void {
 }
 
 /** `Retry-After` as delay-seconds or an HTTP date, capped at one day. */
-function retryAfter(headers: Record<string, string>, at: Date): number | undefined {
+export function retryAfter(headers: Record<string, string>, at: Date): number | undefined {
   const raw = Object.entries(headers).find(([k]) => k.toLowerCase() === 'retry-after')?.[1]?.trim()
   if (!raw) return undefined
   let ms: number
@@ -102,7 +102,7 @@ function retryAfter(headers: Record<string, string>, at: Date): number | undefin
 }
 
 /** Parses JSON. Integers too large for a JS number are kept exact, as strings. */
-function parseBody(response: HttpResponse): JsonValue {
+export function parseBody(response: { body: string }): JsonValue {
   if (response.body.trim() === '') return null
   try {
     return JSON.parse(response.body, (_key, value: unknown, context?: { source?: string }) =>
@@ -115,10 +115,16 @@ function parseBody(response: HttpResponse): JsonValue {
   }
 }
 
-async function authorise(ctx: CallContext, request: HttpRequest): Promise<HttpRequest> {
+async function authorise(ctx: CallContext, base: HttpRequest): Promise<HttpRequest> {
   const auth = ctx.plugin.auth
   const vars = { secrets: ctx.secrets, config: ctx.binding.config }
-  const headers = { ...request.headers }
+  const headers = { ...base.headers }
+  for (const [name, expr] of ctx.plugin.headers) {
+    const value = String(expr.evaluate(vars))
+    if (/[\r\n\0]/.test(value)) throw new ConnectorError('permanent', `header ${name} contains a line break`)
+    headers[name] = value
+  }
+  const request = { ...base, headers }
   switch (auth.type) {
     case 'none':
       return request

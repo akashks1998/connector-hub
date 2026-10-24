@@ -1,5 +1,8 @@
 /** Version of the plugin contract this release of the engine implements. */
-export const ENGINE_CONTRACT = '0.1.0'
+export const ENGINE_CONTRACT = '0.2.0'
+
+/** Every contract this engine runs. 0.2 only added to 0.1, so 0.1 plugins keep working. */
+export const ENGINE_CONTRACTS = ['0.1.0', '0.2.0'] as const
 
 type Semver = [number, number, number]
 

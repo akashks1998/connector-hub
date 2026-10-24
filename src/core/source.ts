@@ -3,7 +3,9 @@ import type { CompiledPlugin, CompiledSource } from './compile.js'
 import { bindingFor } from './config.js'
 import { ConnectorError } from './errors.js'
 import { buildRequest, call, type CallContext } from './http.js'
-import type { Binding, HostPorts, HttpRequest } from './ports.js'
+import { checkRepeat, firstPage, nextPage } from './paging.js'
+import type { Binding, HostPorts, HttpRequest, TargetHttpRequest } from './ports.js'
+import { buildTargetRequest, callTarget } from './target.js'
 import { canonical, compareCursor, mismatch } from './values.js'
 
 export interface RunOptions {
@@ -13,6 +15,8 @@ export interface RunOptions {
 
 export interface SourceResult {
   operations: Operation[]
+  /** Target API requests of a `call` source, in send order. */
+  calls: TargetHttpRequest[]
   /** The cursor saved for the next run, or the previous one when unchanged. */
   cursor: JsonValue | null
   pages: number
@@ -42,11 +46,13 @@ export async function runSource<Tx>(
 
   const previousCursor = await ports.state.getCursor(binding.id, sourceName)
   const ctx: CallContext = { plugin, binding, ports: ports as HostPorts<never>, secrets: await ports.secrets.get(binding.id) }
+  const now = (ports.clock?.now() ?? new Date()).toISOString()
   const operations: Operation[] = []
+  const calls: TargetHttpRequest[] = []
   const requests: HttpRequest[] = []
   const seenPages = new Set<string>()
   let highest: JsonValue | null = previousCursor
-  let page = firstPage(source)
+  let page = firstPage(source.paginate)
   let pages = 0
   let records = 0
   let complete = true
@@ -56,7 +62,7 @@ export async function runSource<Tx>(
       complete = false
       break
     }
-    const vars = { config: binding.config, cursor: previousCursor, page }
+    const vars = { config: binding.config, cursor: previousCursor, page, now }
     const request = buildRequest(plugin, source.request, vars)
     requests.push(request)
     const response = await call(ctx, request)
@@ -64,19 +70,18 @@ export async function runSource<Tx>(
 
     const list = source.records.evaluate({ ...vars, response })
     if (!Array.isArray(list)) throw new ConnectorError('permanent', `sources.${sourceName}.records did not return a list`)
-    if (list.length > 0) {
-      const fingerprint = canonical(list as JsonValue[])
-      if (seenPages.has(fingerprint)) throw new ConnectorError('permanent', `sources.${sourceName}: the provider returned the same page twice`)
-      seenPages.add(fingerprint)
-    }
+    checkRepeat(list as JsonValue[], seenPages, `sources.${sourceName}`)
 
     for (const record of list as JsonValue[]) {
       if (++records > limits.max_records) {
         complete = false
         break
       }
-      const recordVars = { record, config: binding.config, cursor: previousCursor }
-      for (const emit of source.emits) {
+      const recordVars = { record, config: binding.config, cursor: previousCursor, now }
+      // A record `when` skips is still read, so it still moves the cursor.
+      const included = !source.when || source.when.evaluate(recordVars) === true
+      if (included && source.call) calls.push(buildTargetRequest(source.call, recordVars))
+      for (const emit of included ? source.emits : []) {
         if (emit.when && emit.when.evaluate(recordVars) !== true) continue
         const fields: Record<string, JsonValue> = {}
         for (const [name, expr] of emit.fields) {
@@ -102,54 +107,29 @@ export async function runSource<Tx>(
     }
     if (!complete) break
 
-    const next = nextPage(source, page, list.length, { ...vars, response }, seenPages)
+    const next = nextPage(source.paginate, source.next, page, list.length, { ...vars, response }, seenPages)
     if (next === null) break
     page = next
   }
 
   const cursor = complete ? highest : previousCursor
-  if (options.dryRun) return { operations, cursor, pages, complete, requests, applied: false }
+  if (options.dryRun) return { operations, calls, cursor, pages, complete, requests, applied: false }
 
+  // Target calls are the host's own writes, each idempotent by design; the cursor moves only
+  // after all of them succeed, so a failed run is simply repeated.
+  for (const [i, request] of calls.entries()) {
+    try {
+      await callTarget(ports as HostPorts<never>, request)
+    } catch (e) {
+      if (e instanceof ConnectorError) throw new ConnectorError(e.kind, `sources.${sourceName}: ${e.message} (call ${i + 1} of ${calls.length})`, { ...e.details, cause: e })
+      throw e
+    }
+  }
   await ports.transaction(async (tx) => {
     if (operations.length > 0) await ports.apply(operations, tx)
     if (cursor !== null && canonical(cursor) !== canonical(previousCursor)) {
       await ports.saveCursor(binding.id, sourceName, cursor, tx)
     }
   })
-  return { operations, cursor, pages, complete, requests, applied: true }
-}
-
-type Page = Record<string, JsonValue>
-
-function firstPage(source: CompiledSource): Page {
-  switch (source.paginate.type) {
-    case 'none':
-      return {}
-    case 'offset':
-      return { offset: 0, limit: source.paginate.limit }
-    case 'page':
-      return { number: source.paginate.start }
-    case 'cursor':
-      return { cursor: null }
-  }
-}
-
-/** The next page, or null when the source is exhausted. Offset and page paging stop on an empty page. */
-function nextPage(source: CompiledSource, page: Page, count: number, vars: Record<string, unknown>, seen: Set<string>): Page | null {
-  switch (source.paginate.type) {
-    case 'none':
-      return null
-    case 'offset':
-      return count === 0 ? null : { offset: (page.offset as number) + count, limit: source.paginate.limit }
-    case 'page':
-      return count === 0 ? null : { number: (page.number as number) + 1 }
-    case 'cursor': {
-      const next = source.next!.evaluate(vars) as JsonValue
-      if (next === null || next === undefined || next === '') return null
-      const id = `cursor:${canonical(next)}`
-      if (seen.has(id)) throw new ConnectorError('permanent', 'pagination cursor repeated an earlier value')
-      seen.add(id)
-      return { cursor: next }
-    }
-  }
+  return { operations, calls, cursor, pages, complete, requests, applied: true }
 }

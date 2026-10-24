@@ -43,6 +43,19 @@ describe('evaluate', () => {
     expect(env.compile('fromMinor(row.minor, 2)').evaluate({ row: { minor: 1999 } })).toBe(19.99)
   })
 
+  it('works with dates in a time zone and currency digits', () => {
+    const at = { record: { now: '2026-10-24T20:30:00Z' } }
+    expect(env.compile('dateIn(record.now, "Asia/Bangkok")').evaluate(at)).toBe('2026-10-25')
+    expect(env.compile('dateIn(record.now, "UTC")').evaluate(at)).toBe('2026-10-24')
+    expect(() => env.compile('dateIn(record.now, "Mars/Base")').evaluate(at)).toThrow(/time zone/)
+    expect(env.compile('addDays("2026-12-31", 1)').evaluate({})).toBe('2027-01-01')
+    expect(env.compile('addDays("2026-03-01", -1)').evaluate({})).toBe('2026-02-28')
+    expect(() => env.compile('addDays("2026-02-30x", 1)').evaluate({})).toThrow(/not a date/)
+    expect(env.compile('[currencyDigits("THB"), currencyDigits("JPY"), currencyDigits("KWD")]').evaluate({})).toEqual([2, 0, 3])
+    expect(() => env.compile('currencyDigits("thb")').evaluate({})).toThrow(/currency/)
+    expect(env.compile('upper("thb")').evaluate({})).toBe('THB')
+  })
+
   it('builds maps and lists', () => {
     const e = env.compile('{"date": row.date, "price": row.price, "flags": [row.open, false]}')
     expect(e.evaluate({ row: { date: '2026-10-01', price: 100, open: true } })).toEqual({

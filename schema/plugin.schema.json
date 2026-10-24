@@ -202,6 +202,17 @@
         }
       ]
     },
+    "headers": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "limits": {
       "default": {
         "timeout_ms": 15000,
@@ -394,8 +405,12 @@
             "type": "string",
             "minLength": 1
           },
+          "when": {
+            "type": "string",
+            "minLength": 1
+          },
           "emit": {
-            "minItems": 1,
+            "default": [],
             "type": "array",
             "items": {
               "type": "object",
@@ -425,6 +440,44 @@
               ]
             }
           },
+          "call": {
+            "type": "object",
+            "properties": {
+              "method": {
+                "default": "GET",
+                "type": "string",
+                "enum": [
+                  "GET",
+                  "POST",
+                  "PUT",
+                  "PATCH",
+                  "DELETE"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "query": {
+                "default": {},
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "body": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
           "cursor": {
             "type": "object",
             "properties": {
@@ -447,8 +500,7 @@
         },
         "required": [
           "request",
-          "records",
-          "emit"
+          "records"
         ]
       }
     },
@@ -487,6 +539,148 @@
             "required": [
               "entity",
               "fields"
+            ]
+          },
+          "read": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "query": {
+                "default": {},
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "records": {
+                "type": "string",
+                "minLength": 1
+              },
+              "paginate": {
+                "default": {
+                  "type": "none"
+                },
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "none"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "offset"
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "limit"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "page"
+                      },
+                      "start": {
+                        "default": 1,
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "cursor"
+                      },
+                      "next": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "next"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "path",
+              "records"
+            ]
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fields": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "where": {
+            "type": "string",
+            "minLength": 1
+          },
+          "skip": {
+            "type": "string",
+            "minLength": 1
+          },
+          "on": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "after": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$"
+            }
+          },
+          "on_delete": {
+            "default": "ignore",
+            "type": "string",
+            "enum": [
+              "ignore",
+              "send"
             ]
           },
           "batch": {
@@ -562,7 +756,6 @@
           }
         },
         "required": [
-          "input",
           "request"
         ]
       }
@@ -572,7 +765,6 @@
     "plugin",
     "version",
     "engine",
-    "domain",
     "hosts"
   ],
   "$id": "https://unpkg.com/connector-hub/schema/plugin.schema.json",

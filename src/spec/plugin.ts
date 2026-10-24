@@ -64,6 +64,20 @@ export const Request = z.object({
 })
 export type Request = z.infer<typeof Request>
 
+/**
+ * A request to the host's own API, the target, e.g. Propool's public API. The host adds its
+ * base URL and the credentials of this install; the plugin never sees them.
+ */
+export const TargetRequest = z.object({
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
+  /** Path template relative to the target API root, e.g. `/rental-units/{config.unit_id}/calendar`. */
+  path: Template,
+  query: z.record(z.string(), Cel).default({}),
+  /** CEL producing the JSON body. */
+  body: Cel.optional(),
+})
+export type TargetRequest = z.infer<typeof TargetRequest>
+
 export const Paginate = z.discriminatedUnion('type', [
   z.object({ type: z.literal('none') }),
   /** Exposes `page.offset` and `page.limit`; stops on an empty page. */
@@ -85,45 +99,94 @@ export const Emit = z.object({
 })
 export type Emit = z.infer<typeof Emit>
 
-export const Source = z.object({
-  description: z.string().optional(),
-  request: Request,
-  paginate: Paginate.default({ type: 'none' }),
-  /** CEL over `response` producing the list of provider records on this page. */
-  records: Cel,
-  emit: z.array(Emit).min(1),
-  /**
-   * Incremental sync. `value` is CEL over `record`; the engine keeps the highest
-   * value seen and exposes it as `cursor` on the next run, committed in the same
-   * transaction as the operations.
-   */
-  cursor: z.object({ value: Cel }).optional(),
-  /** Filters the provider supports, so the engine can fetch only changes. */
-  filters: z.array(z.string()).default([]),
-})
+export const Source = z
+  .object({
+    description: z.string().optional(),
+    request: Request,
+    paginate: Paginate.default({ type: 'none' }),
+    /** CEL over `response` producing the list of provider records on this page. */
+    records: Cel,
+    /** CEL over `record`, `config`, `cursor`, `now`. Records where it is false are skipped. */
+    when: Cel.optional(),
+    /** Domain operations per record. A source has `emit` or `call`, not both. */
+    emit: z.array(Emit).default([]),
+    /** One target API request per record, e.g. an upsert into the host. Variables as for `when`. */
+    call: TargetRequest.optional(),
+    /**
+     * Incremental sync. `value` is CEL over `record`; the engine keeps the highest
+     * value seen and exposes it as `cursor` on the next run, committed in the same
+     * transaction as the operations.
+     */
+    cursor: z.object({ value: Cel }).optional(),
+    /** Filters the provider supports, so the engine can fetch only changes. */
+    filters: z.array(z.string()).default([]),
+  })
+  .refine((s) => (s.emit.length > 0) !== (s.call !== undefined), { message: 'a source needs either emit or call' })
 export type Source = z.infer<typeof Source>
 
-export const Sink = z.object({
-  description: z.string().optional(),
-  /** The declared input: which entity and fields this sink reads. Nothing else is visible. */
-  input: z.object({
-    entity: name,
-    fields: z.array(z.string()).min(1),
-    /** CEL over `row`, applied by the engine after reading. */
-    where: Cel.optional(),
-  }),
-  batch: z
-    .object({
-      size: z.number().int().positive().default(50),
-      /** CEL over `row` grouping rows that must share one request, e.g. a listing ID. */
-      by: Cel.optional(),
-    })
-    .default({ size: 50 }),
-  /** Variables: `batch.key`, `batch.changes` (list of `{key, row, previous}`), `config`. */
-  request: Request,
-  /** CEL over `response`; false fails the batch as permanent. Defaults to any 2xx. */
-  ack: Cel.optional(),
+/** Reads a sink's rows from the target API. Every page is read before anything is sent. */
+export const SinkRead = z.object({
+  path: Template,
+  /** CEL over `config`, `page`, `now`. */
+  query: z.record(z.string(), Cel).default({}),
+  /** CEL over `response` producing the rows on this page. */
+  records: Cel,
+  paginate: Paginate.default({ type: 'none' }),
 })
+export type SinkRead = z.infer<typeof SinkRead>
+
+export const Sink = z
+  .object({
+    description: z.string().optional(),
+    /** Domain mode: the declared input, which entity and fields this sink reads. Nothing else is visible. */
+    input: z
+      .object({
+        entity: name,
+        fields: z.array(z.string()).min(1),
+        /** CEL over `row`, applied by the engine after reading. */
+        where: Cel.optional(),
+      })
+      .optional(),
+    /** Target mode: rows come from the target API instead of the host's `read` port. */
+    read: SinkRead.optional(),
+    /** Target mode: CEL over `row` giving its stable key, e.g. `row.date`. */
+    key: Cel.optional(),
+    /** Target mode: the row fields compared with, and saved as, the last write. Default: the whole row. */
+    fields: z.array(z.string()).min(1).optional(),
+    /** Target mode: CEL over `row`. Rows where it is false count as absent. */
+    where: Cel.optional(),
+    /**
+     * CEL over `row`. Rows where it is true are left alone: not sent, and not treated as deleted.
+     * An echo guard, e.g. nights the provider itself booked.
+     */
+    skip: Cel.optional(),
+    /** Host event names that should run this sink, e.g. `calendar.updated`. The engine only reports them. */
+    on: z.array(z.string()).default([]),
+    /** Sinks that must run first when both run, e.g. the listing before its calendar. */
+    after: z.array(name).default([]),
+    /**
+     * `send`: a row written before and now absent is sent once more as a change with
+     * `deleted: true` and its last written values, then forgotten. `ignore`: it is just forgotten.
+     */
+    on_delete: z.enum(['ignore', 'send']).default('ignore'),
+    batch: z
+      .object({
+        size: z.number().int().positive().default(50),
+        /** CEL over `row` grouping rows that must share one request, e.g. a listing ID. */
+        by: Cel.optional(),
+      })
+      .default({ size: 50 }),
+    /** Variables: `batch.key`, `batch.changes` (list of `{row, previous, deleted}`), `config`, `now`. */
+    request: Request,
+    /** CEL over `response`; false fails the batch as permanent. Defaults to any 2xx. */
+    ack: Cel.optional(),
+  })
+  .refine((s) => (s.input !== undefined) !== (s.read !== undefined), {
+    message: 'a sink needs either input or read',
+  })
+  .refine((s) => s.read === undefined || s.key !== undefined, {
+    message: 'a sink with read needs key',
+  })
 export type Sink = z.infer<typeof Sink>
 
 export const Plugin = z.object({
@@ -132,11 +195,14 @@ export const Plugin = z.object({
   description: z.string().optional(),
   /** Engine contract this plugin was written for, as a caret range, e.g. `^0.1`. */
   engine: z.string(),
-  domain: z.object({ name: z.string(), version: z.string() }),
+  /** Domain pack the plugin's `emit` and `input` use. Not needed when it only talks to the target API. */
+  domain: z.object({ name: z.string(), version: z.string() }).optional(),
   /** Every host the plugin may call. Requests to any other host are refused. */
   hosts: z.array(z.url({ protocol: /^https?$/ })).min(1),
   config: z.record(name, ConfigField).default({}),
   auth: Auth.default({ type: 'none' }),
+  /** Headers on every provider request, CEL over `secrets` and `config`. */
+  headers: z.record(z.string(), Cel).default({}),
   limits: Limits.default(Limits.parse({})),
   /** Entity → fields this plugin is the source of truth for. */
   owns: z.record(name, z.array(z.string())).default({}),
