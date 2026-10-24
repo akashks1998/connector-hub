@@ -13,7 +13,10 @@ Plugins can read and write through the host's own API (the target) instead of a 
 - Target paths are checked after rendering (no `//`, encoded `..`, backslash, `#`); target calls get the plugin's timeout and body limits.
 - A `call` source refuses to send when a page or record cap cut the read short.
 - A missing required secret fails the run as `config`.
-- PriceLabs plugin (`src/plugins/pricelabs.ts`).
+- Webhooks: `handleWebhook` with `ping`, `binding`, `verify`, `when`, `dedupe_key`, `order`, and one action of `call`, `reread`, `resend`, `issue`. New optional `webhooks` port.
+- CEL: `hmacSha256Hex`, `secureEquals`, `base64`, `uuidFrom`.
+- OAuth `not_before_ms`: wait before using a new token.
+- PriceLabs plugin (`src/plugins/pricelabs.ts`), with the `sync`, `calendar` and `hook` webhooks.
 
 ## 0.1.0
 

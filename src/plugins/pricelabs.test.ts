@@ -1,5 +1,6 @@
+import { createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { compilePlugin, runSinks, type Row } from '../index.js'
+import { compilePlugin, handleWebhook, runSinks, type Row } from '../index.js'
 import { binding, memoryHost, replayHttp, replayTarget, type Fixture, type TargetFixture } from '../testkit/index.js'
 import { pricelabsPlugin } from './pricelabs.js'
 
@@ -238,5 +239,84 @@ describe('pricelabs plugin', () => {
       now: NOW,
     })
     await expect(runSinks(plugin, b, ['listing'], ports)).rejects.toThrow()
+  })
+})
+
+describe('pricelabs webhooks', () => {
+  const plugin = compilePlugin(pricelabsPlugin)
+  const token = 'tok'
+  const sign = (body: string, requestId = 'req-1') => {
+    const headers = { 'x-source': 'pricelabs', 'x-pl-timestamp': '1761300000', 'x-pl-requestid': requestId }
+    const signedHeaders = `v1.${createHmac('sha256', token).update(`v1:pricelabs:1761300000:${requestId}`).digest('hex')}`
+    const signedBody = createHmac('sha256', token).update(signedHeaders).update(body).digest('hex')
+    return { ...headers, 'X-PL-Signed-Headers': signedHeaders, 'x-pl-signed-body': signedBody }
+  }
+  const host = (target: TargetFixture[] = []) =>
+    memoryHost({ http: replayHttp([]), target: replayTarget(target), secrets, now: NOW, webhookBindings: { PL_42: b } })
+  const sync = JSON.stringify({
+    listing_id: 'PL_42',
+    last_refreshed: '2026-10-24T06:00:00Z',
+    data: [
+      { date: '2026-11-02', price: 4800, min_stay: 3 },
+      { date: '2026-11-03', price: 4750.5 },
+    ],
+  })
+
+  it('takes new prices from a signed sync, once', async () => {
+    const target = replayTarget([{ request: { method: 'POST', path: `/rental-units/${UNIT}/rate-recommendations` }, response: { body: { success: true } } }])
+    const { ports } = memoryHost({ http: replayHttp([]), target, secrets, now: NOW, webhookBindings: { PL_42: b } })
+    const request = { method: 'POST', path: '/sync', headers: sign(sync), body: sync }
+    const result = await handleWebhook(plugin, request, ports)
+    expect(result).toMatchObject({ webhook: 'sync', bindingId: 'b1', outcome: 'done', status: 200 })
+    const body = JSON.parse(target.sent[0]!.body!)
+    expect(body).toEqual({
+      requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      generatedAt: '2026-10-24T06:00:00Z',
+      days: [
+        { date: '2026-11-02', rateMinor: 480000, minStay: 3 },
+        { date: '2026-11-03', rateMinor: 475050 },
+      ],
+    })
+    await expect(handleWebhook(plugin, request, ports)).resolves.toMatchObject({ outcome: 'duplicate', status: 200 })
+    expect(target.sent).toHaveLength(1)
+  })
+
+  it('answers the URL probe and refuses a bad signature or an unknown listing', async () => {
+    const { ports } = host()
+    await expect(handleWebhook(plugin, { method: 'POST', path: '/sync', headers: {}, body: '{"verify": true}' }, ports)).resolves.toMatchObject({
+      outcome: 'ping',
+      status: 200,
+    })
+    const forged = { ...sign(sync), 'x-pl-signed-body': '0'.repeat(64) }
+    await expect(handleWebhook(plugin, { method: 'POST', path: '/sync', headers: forged, body: sync }, ports)).resolves.toMatchObject({
+      outcome: 'unverified',
+      status: 401,
+    })
+    const tampered = sync.replace('4800', '1')
+    await expect(handleWebhook(plugin, { method: 'POST', path: '/sync', headers: sign(sync), body: tampered }, ports)).resolves.toMatchObject({
+      outcome: 'unverified',
+    })
+    await expect(handleWebhook(plugin, { method: 'POST', path: '/sync', headers: {}, body: sync }, ports)).resolves.toMatchObject({ outcome: 'unverified' })
+    const other = sync.replace('PL_42', 'PL_7')
+    await expect(handleWebhook(plugin, { method: 'POST', path: '/sync', headers: sign(other), body: other }, ports)).resolves.toMatchObject({
+      outcome: 'unknown_binding',
+      status: 404,
+    })
+    await expect(handleWebhook(plugin, { method: 'POST', path: '/nope', headers: {}, body: '' }, ports)).resolves.toMatchObject({ outcome: 'unknown_path' })
+  })
+
+  it('a calendar request forgets the snapshots so the next run sends everything', async () => {
+    const h = host()
+    h.remote.set('b1/calendar', new Map([['2026-10-25', { date: '2026-10-25' }], ['#config', {}]]))
+    const body = '{"listing_id": "PL_42"}'
+    const result = await handleWebhook(plugin, { method: 'POST', path: '/calendar', headers: sign(body, 'req-9'), body }, h.ports)
+    expect(result).toMatchObject({ outcome: 'done', resend: ['listing', 'calendar', 'calendar_next', 'reservations', 'blocks'] })
+    expect(h.remote.get('b1/calendar')!.size).toBe(0)
+  })
+
+  it('a failed sync is reported as an issue', async () => {
+    const body = '{"_json": {"API_FAILED_SYNC": "PL_42"}}'
+    const result = await handleWebhook(plugin, { method: 'POST', path: '/hook', headers: sign(body, 'req-3'), body }, host().ports)
+    expect(result).toMatchObject({ outcome: 'done', issue: 'PriceLabs could not sync this listing' })
   })
 })

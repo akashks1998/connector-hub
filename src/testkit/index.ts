@@ -79,6 +79,8 @@ export interface MemoryHostOptions {
   now?: Date
   /** Make `apply` throw, to test that nothing commits. */
   failApply?: boolean
+  /** Bindings found by webhook key, e.g. `{ PL_42: binding('b1', …) }`. Enables the webhooks port. */
+  webhookBindings?: Record<string, Binding>
 }
 
 /** A complete in-memory host. Writes are staged per transaction and kept only on success. */
@@ -88,6 +90,8 @@ export function memoryHost(options: MemoryHostOptions) {
   const remote = new Map<string, Map<string, Row>>()
   const tokens = new Map<string, CachedToken>()
   const rows = options.rows ?? {}
+  const seen = new Set<string>()
+  const marks = new Map<string, JsonValue>()
 
   const ports: HostPorts<MemoryTx> = {
     http: options.http,
@@ -130,9 +134,18 @@ export function memoryHost(options: MemoryHostOptions) {
       tx.remote.set(k, new Map([...(tx.remote.get(k) ?? []), ...written]))
     },
     clock: { now: () => options.now ?? new Date() },
+    ...(options.webhookBindings && {
+      webhooks: {
+        binding: async (_webhook: string, key: string) => options.webhookBindings![key] ?? null,
+        seen: async (id: string, webhook: string, key: string) => seen.has(`${id}/${webhook}/${key}`),
+        remember: async (id: string, webhook: string, key: string) => void seen.add(`${id}/${webhook}/${key}`),
+        getMark: async (id: string, webhook: string) => marks.get(`${id}/${webhook}`) ?? null,
+        saveMark: async (id: string, webhook: string, value: JsonValue) => void marks.set(`${id}/${webhook}`, value),
+      },
+    }),
   }
 
-  return { ports, applied, cursors, remote, tokens }
+  return { ports, applied, cursors, remote, tokens, seen, marks }
 }
 
 export function binding(id: string, config: Record<string, JsonValue> = {}): Binding {

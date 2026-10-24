@@ -88,6 +88,25 @@ try {
 Run at most one source run per binding and source at a time, or two runs may
 both start from the same cursor.
 
+## Webhooks
+
+Route `POST <your webhook URL>/<plugin>/<path>` to `handleWebhook` with the raw
+body, and answer with the result's `status`:
+
+```ts
+const result = await handleWebhook(plugin, { method, path, headers, query, body: rawBody }, ports)
+if (result.issue) flagBinding(result.bindingId, result.issue)
+if (result.resend.length) queueSinks(result.bindingId, result.resend)
+return reply(result.status)
+```
+
+The `webhooks` port finds a binding by the plugin's key (`binding`) and keeps
+the dedupe and order marks (`seen`/`remember`, `getMark`/`saveMark`) that
+plugins using `dedupe_key` or `order` need. Handle one request per binding at a
+time, so two deliveries of the same id cannot both pass the dedupe check. A
+thrown `ConnectorError` maps as for runs: answer 5xx for `retryable` so the
+provider retries.
+
 ## Storing plugins
 
 Compile once and keep the `CompiledPlugin` in memory; it is immutable and safe

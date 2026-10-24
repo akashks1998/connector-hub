@@ -16,6 +16,13 @@ import type { PluginInput } from '../spec/index.js'
 const alpha3 = `{"AE": "ARE", "TH": "THA", "SG": "SGP", "MY": "MYS", "ID": "IDN", "VN": "VNM", "PH": "PHL", "GB": "GBR", "US": "USA"}`
 const r = 'batch.changes[0].row'
 const ota = '["airbnb", "vrbo", "booking_com"]'
+// PriceLabs signs every callback with the integration token: first the headers, then the body.
+const signed = `secureEquals(request.headers["x-pl-signed-headers"], "v1." + hmacSha256Hex(secrets.integration_token,
+    "v1:" + request.headers["x-source"] + ":" + request.headers["x-pl-timestamp"] + ":" + request.headers["x-pl-requestid"]))
+  && secureEquals(request.headers["x-pl-signed-body"],
+    hmacSha256Hex(secrets.integration_token, request.headers["x-pl-signed-headers"] + request.raw_body))`
+// The push contract names the listing \`listing_id\`, the pull contract \`id\`.
+const listingOf = 'has(request.body.listing_id) ? request.body.listing_id : request.body.id'
 const reservationAck = '!has(response.body.failure) || size(response.body.failure) == 0'
 const today = 'dateIn(now, config.timezone)'
 
@@ -152,6 +159,43 @@ export const pricelabsPlugin = {
           "total_cost": 0, "status": c.deleted ? "canceled" : "blocked", "booking_source": "propool"})}]}`,
       },
       ack: reservationAck,
+    },
+  },
+  webhooks: {
+    // New prices from PriceLabs. Propool refuses a batch not newer than the last one it took.
+    sync: {
+      path: '/sync',
+      ping: 'size(request.raw_body) <= 128 && request.body == {"verify": true}',
+      binding: listingOf,
+      verify: signed,
+      dedupe_key: 'request.headers["x-pl-requestid"]',
+      call: {
+        method: 'POST',
+        path: '/rental-units/{config.unit_id}/rate-recommendations',
+        body: `{"requestId": uuidFrom("pricelabs:" + request.headers["x-pl-requestid"]),
+          "generatedAt": has(request.body.last_refreshed) ? request.body.last_refreshed : request.body.last_refreshed_at,
+          "days": request.body.data.map(d, compact({"date": d.date,
+            "rateMinor": toMinor(double(d.price), currencyDigits(config.currency)),
+            "minStay": has(d.min_stay) ? dyn(int(d.min_stay)) : dyn(null)}))}`,
+      },
+    },
+    // PriceLabs asks for everything again.
+    calendar: {
+      path: '/calendar',
+      ping: 'size(request.raw_body) <= 128 && request.body == {"verify": true}',
+      binding: listingOf,
+      verify: signed,
+      dedupe_key: 'request.headers["x-pl-requestid"]',
+      resend: ['listing', 'calendar', 'calendar_next', 'reservations', 'blocks'],
+    },
+    // PriceLabs could not sync the listing.
+    hook: {
+      path: '/hook',
+      ping: 'size(request.raw_body) <= 128 && request.body == {"verify": true}',
+      binding: 'has(request.body.listing_id) ? request.body.listing_id : request.body._json.API_FAILED_SYNC',
+      verify: signed,
+      dedupe_key: 'request.headers["x-pl-requestid"]',
+      issue: '"PriceLabs could not sync this listing"',
     },
   },
 } satisfies PluginInput

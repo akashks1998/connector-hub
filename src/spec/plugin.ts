@@ -38,6 +38,8 @@ export const Auth = z.discriminatedUnion('type', [
     style: z.enum(['form', 'basic']).default('form'),
     /** Used when the token response has no `expires_in`. */
     default_ttl_s: z.number().int().positive().default(3600),
+    /** Wait this long before using a new token; some providers reject one used at once. */
+    not_before_ms: z.number().int().min(0).max(10_000).default(0),
   }),
 ])
 export type Auth = z.infer<typeof Auth>
@@ -189,6 +191,50 @@ export const Sink = z
   })
 export type Sink = z.infer<typeof Sink>
 
+/**
+ * An incoming provider webhook. The host routes a request to it by `path` and the engine answers:
+ * `ping` probes are acknowledged, the binding is found and the request verified, then exactly one
+ * action runs: `call` the target, `reread` the record from the provider, `resend` sinks, or `issue`.
+ */
+export const Webhook = z
+  .object({
+    description: z.string().optional(),
+    /** Path under the host's webhook URL for this plugin, e.g. `/sync`. Unique per plugin. */
+    path: z.string().regex(/^\/[a-z0-9_-]+(\/[a-z0-9_-]+)*$/, 'use a path like /sync'),
+    /** CEL over `request`: true answers a provider's URL probe without verifying or acting. */
+    ping: Cel.optional(),
+    /** CEL over `request` giving the key the host finds the binding by, e.g. the provider listing id. */
+    binding: Cel,
+    /** CEL over `request`, `config`, `secrets`; must be true. Use `secureEquals` for comparisons. */
+    verify: Cel,
+    /** CEL over `request`, `config`, `now`. Requests where it is false are acknowledged and ignored. */
+    when: Cel.optional(),
+    /** CEL over `request`: a delivery id. A key already handled is acknowledged and ignored. */
+    dedupe_key: Cel.optional(),
+    /** CEL over `request`: a value that must grow, e.g. a batch time. Older or equal requests are ignored. */
+    order: Cel.optional(),
+    /** Variables `request`, `config`, `now`. */
+    call: TargetRequest.optional(),
+    /** The payload is only a signal: read the record from the provider and run the source's `call` on it. */
+    reread: z
+      .object({
+        source: name,
+        /** Provider request, variables `request`, `config`, `now`. */
+        request: Request,
+        /** CEL over `response` giving the records; defaults to the source's `records`. */
+        records: Cel.optional(),
+      })
+      .optional(),
+    /** Sinks whose snapshots are forgotten, so their next run sends everything. The host runs them. */
+    resend: z.array(name).min(1).optional(),
+    /** CEL over `request`, `config`, `now`: a message for the host to show as a problem with the binding. */
+    issue: Cel.optional(),
+  })
+  .refine((w) => [w.call, w.reread, w.resend, w.issue].filter((a) => a !== undefined).length === 1, {
+    message: 'a webhook needs exactly one of call, reread, resend or issue',
+  })
+export type Webhook = z.infer<typeof Webhook>
+
 export const Plugin = z.object({
   plugin: z.string().regex(/^[a-z][a-z0-9-]*$/, 'use lower-kebab-case'),
   version: z.string().regex(/^\d+\.\d+\.\d+$/, 'use semver, e.g. 1.0.0'),
@@ -208,6 +254,7 @@ export const Plugin = z.object({
   owns: z.record(name, z.array(z.string())).default({}),
   sources: z.record(name, Source).default({}),
   sinks: z.record(name, Sink).default({}),
+  webhooks: z.record(name, Webhook).default({}),
 })
 export type Plugin = z.infer<typeof Plugin>
 export type PluginInput = z.input<typeof Plugin>

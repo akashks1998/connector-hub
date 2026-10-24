@@ -20,6 +20,17 @@ export interface HttpResponse {
   body: string
 }
 
+/** An incoming webhook request as the host received it. */
+export interface WebhookRequest {
+  method: string
+  /** The path under this plugin's webhook URL, e.g. `/sync`, without the query string. */
+  path: string
+  headers: Record<string, string>
+  query?: Record<string, string>
+  /** The body exactly as received; signatures are computed over it. */
+  body: string
+}
+
 /** One configured connection of a plugin, e.g. one agency's Hostaway account. */
 export interface Binding {
   id: string
@@ -69,6 +80,18 @@ export interface HostPorts<Tx = unknown> {
   saveCursor(bindingId: string, source: string, cursor: JsonValue, tx: Tx): Promise<void>
   /** Merges `rows` into the sink's snapshot: null removes a key, keys not in `rows` keep their saved values. */
   saveRemote(bindingId: string, sink: string, rows: Map<string, Row | null>, tx: Tx): Promise<void>
+  /**
+   * Incoming webhooks. `binding` finds the binding a request belongs to. The others are needed
+   * only by webhooks that declare `dedupe_key` or `order`; hosts should handle one request per
+   * binding at a time so two deliveries of the same id cannot both pass.
+   */
+  webhooks?: {
+    binding(webhook: string, key: string): Promise<Binding | null>
+    seen?(bindingId: string, webhook: string, key: string): Promise<boolean>
+    remember?(bindingId: string, webhook: string, key: string): Promise<void>
+    getMark?(bindingId: string, webhook: string): Promise<JsonValue | null>
+    saveMark?(bindingId: string, webhook: string, value: JsonValue): Promise<void>
+  }
   /** Optional shared rate budget per plugin. Resolves when a request may be sent. */
   budget?: { take(plugin: string): Promise<void> }
   clock?: { now(): Date }

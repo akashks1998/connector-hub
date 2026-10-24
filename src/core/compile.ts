@@ -110,6 +110,7 @@ export type CompiledAuth =
       scope?: string
       style: 'form' | 'basic'
       defaultTtlS: number
+      notBeforeMs: number
     }
 
 export interface CompiledPlugin {
@@ -124,6 +125,23 @@ export interface CompiledPlugin {
   readonly headers: ReadonlyArray<[string, CompiledExpression]>
   readonly sources: ReadonlyMap<string, CompiledSource>
   readonly sinks: ReadonlyMap<string, CompiledSink>
+  /** By path. */
+  readonly webhooks: ReadonlyMap<string, CompiledWebhook>
+}
+
+export interface CompiledWebhook {
+  name: string
+  path: string
+  ping?: CompiledExpression
+  binding: CompiledExpression
+  verify: CompiledExpression
+  when?: CompiledExpression
+  dedupeKey?: CompiledExpression
+  order?: CompiledExpression
+  call?: CompiledTargetRequest
+  reread?: { source: string; request: CompiledRequest; records?: CompiledExpression }
+  resend?: string[]
+  issue?: CompiledExpression
 }
 
 /** `now` is the run's start time as an ISO timestamp string, so expressions stay deterministic. */
@@ -136,6 +154,10 @@ const envs = {
   row: { row: 'map', config: 'map', now: 'string' },
   batch: { batch: 'map', config: 'map', now: 'string' },
   ack: { response: 'map', batch: 'map', config: 'map', now: 'string' },
+  webhookKey: { request: 'map' },
+  webhookVerify: { request: 'map', config: 'map', secrets: 'map' },
+  webhook: { request: 'map', config: 'map', now: 'string' },
+  webhookResponse: { response: 'map', request: 'map', config: 'map', now: 'string' },
 } satisfies Record<string, Record<string, CelType>>
 
 /** Headers the transport or an auth preset controls. */
@@ -221,7 +243,7 @@ export function compilePlugin(input: PluginInput | unknown, domainInput?: Domain
     return Object.entries(headers).map(([k, v]) => [k.toLowerCase(), compile(env, v, `${where}.${k}`)])
   }
 
-  const compileRequest = (r: Request, env: 'request' | 'batch', where: string): CompiledRequest => {
+  const compileRequest = (r: Request, env: 'request' | 'batch' | 'webhook', where: string): CompiledRequest => {
     if (!r.path.startsWith('/')) problems.push(`${where}.path: must start with "/"`)
     return {
       method: r.method,
@@ -234,7 +256,7 @@ export function compilePlugin(input: PluginInput | unknown, domainInput?: Domain
 
   const compileTarget = (
     r: { method?: TargetRequest['method']; path: string; query: Record<string, string>; body?: string },
-    env: 'request' | 'record',
+    env: 'request' | 'record' | 'webhook',
     where: string,
   ): CompiledTargetRequest => {
     if (!r.path.startsWith('/')) problems.push(`${where}.path: must start with "/"`)
@@ -399,8 +421,43 @@ export function compilePlugin(input: PluginInput | unknown, domainInput?: Domain
   const cycle = findCycle(Object.fromEntries(Object.entries(plugin.sinks).map(([n, s]) => [n, s.after])))
   if (cycle) problems.push(`sinks: after forms a cycle: ${cycle.join(' → ')}`)
 
+  const webhooks = new Map<string, CompiledWebhook>()
+  for (const [name, w] of Object.entries(plugin.webhooks)) {
+    const where = `webhooks.${name}`
+    if (webhooks.has(w.path)) problems.push(`${where}.path: ${w.path} is used by webhooks.${webhooks.get(w.path)!.name}`)
+    if (w.reread) {
+      const source = plugin.sources[w.reread.source]
+      if (!source) problems.push(`${where}.reread.source: unknown source ${w.reread.source}`)
+      else if (!source.call) problems.push(`${where}.reread.source: ${w.reread.source} has no call`)
+      if (w.reread.request.method !== 'GET' && w.reread.request.method !== 'POST') {
+        problems.push(`${where}.reread.request.method: a reread reads, so only GET and POST are allowed`)
+      }
+    }
+    for (const sink of w.resend ?? []) if (!(sink in plugin.sinks)) problems.push(`${where}.resend: unknown sink ${sink}`)
+    webhooks.set(w.path, {
+      name,
+      path: w.path,
+      ...(w.ping !== undefined && { ping: compile('webhookKey', w.ping, `${where}.ping`) }),
+      binding: compile('webhookKey', w.binding, `${where}.binding`),
+      verify: compile('webhookVerify', w.verify, `${where}.verify`),
+      ...(w.when !== undefined && { when: compile('webhook', w.when, `${where}.when`) }),
+      ...(w.dedupe_key !== undefined && { dedupeKey: compile('webhookKey', w.dedupe_key, `${where}.dedupe_key`) }),
+      ...(w.order !== undefined && { order: compile('webhookKey', w.order, `${where}.order`) }),
+      ...(w.call && { call: compileTarget(w.call, 'webhook', `${where}.call`) }),
+      ...(w.reread && {
+        reread: {
+          source: w.reread.source,
+          request: compileRequest(w.reread.request, 'webhook', `${where}.reread.request`),
+          ...(w.reread.records !== undefined && { records: compile('webhookResponse', w.reread.records, `${where}.reread.records`) }),
+        },
+      }),
+      ...(w.resend && { resend: w.resend }),
+      ...(w.issue !== undefined && { issue: compile('webhook', w.issue, `${where}.issue`) }),
+    })
+  }
+
   if (problems.length > 0) throw new PluginValidationError(problems)
-  return { declaration: plugin, domain: pack, scopes, baseUrl, auth, headers, sources, sinks }
+  return { declaration: plugin, domain: pack, scopes, baseUrl, auth, headers, sources, sinks, webhooks }
 }
 
 /** The first cycle in a dependency graph, as a path that returns to its start, or null. */
@@ -487,6 +544,7 @@ function compileAuth(a: Auth, compile: (source: string, where: string) => Compil
         ...(a.scope !== undefined && { scope: a.scope }),
         style: a.style,
         defaultTtlS: a.default_ttl_s,
+        notBeforeMs: a.not_before_ms,
       }
   }
 }

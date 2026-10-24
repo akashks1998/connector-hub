@@ -1,3 +1,4 @@
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { Environment, type ASTNode } from '@marcbachmann/cel-js'
 
 /** CEL type names accepted for declared variables. */
@@ -348,6 +349,36 @@ const BUILTIN_FUNCTIONS: CelFunction[] = [
         out.set(pair[0], pair[1])
       }
       return out
+    }) as never,
+  },
+  {
+    signature: 'hmacSha256Hex(string, string): string',
+    description: 'HMAC-SHA256 of a message with a key, as lowercase hex, e.g. for webhook signatures.',
+    handler: ((key: string, message: string) => createHmac('sha256', key).update(message).digest('hex')) as never,
+  },
+  {
+    signature: 'secureEquals(string, string): bool',
+    description: 'Compares two strings in constant time. Use it for every signature or password check.',
+    handler: ((a: string, b: string) => {
+      const x = createHash('sha256').update(a).digest()
+      const y = createHash('sha256').update(b).digest()
+      return timingSafeEqual(x, y) && a === b
+    }) as never,
+  },
+  {
+    signature: 'base64(string): string',
+    description: 'The UTF-8 bytes of a string in base64, e.g. for a Basic authorization header.',
+    handler: ((text: string) => Buffer.from(text, 'utf8').toString('base64')) as never,
+  },
+  {
+    signature: 'uuidFrom(string): string',
+    description: 'A stable UUID (version 5 layout) derived from a string, e.g. an idempotency key from a delivery id.',
+    handler: ((text: string) => {
+      const bytes = createHash('sha256').update(`connector-hub:${text}`).digest().subarray(0, 16)
+      bytes[6] = (bytes[6]! & 0x0f) | 0x50
+      bytes[8] = (bytes[8]! & 0x3f) | 0x80
+      const hex = bytes.toString('hex')
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
     }) as never,
   },
 ]

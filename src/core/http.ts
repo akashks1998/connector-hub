@@ -180,6 +180,7 @@ async function accessToken(
   const useForS = ttlS - Math.min(60, ttlS / 2)
   const token = { value: body.access_token, expiresAt: new Date(at.getTime() + useForS * 1000) }
   await ctx.ports.tokens.put(ctx.binding.id, token)
+  if (auth.notBeforeMs > 0) await new Promise((resolve) => setTimeout(resolve, auth.notBeforeMs))
   return token.value
 }
 

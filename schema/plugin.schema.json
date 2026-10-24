@@ -191,6 +191,12 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
+            },
+            "not_before_ms": {
+              "default": 0,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
             }
           },
           "required": [
@@ -757,6 +763,171 @@
         },
         "required": [
           "request"
+        ]
+      }
+    },
+    "webhooks": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^\\/[a-z0-9_-]+(\\/[a-z0-9_-]+)*$"
+          },
+          "ping": {
+            "type": "string",
+            "minLength": 1
+          },
+          "binding": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verify": {
+            "type": "string",
+            "minLength": 1
+          },
+          "when": {
+            "type": "string",
+            "minLength": 1
+          },
+          "dedupe_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "order": {
+            "type": "string",
+            "minLength": 1
+          },
+          "call": {
+            "type": "object",
+            "properties": {
+              "method": {
+                "default": "GET",
+                "type": "string",
+                "enum": [
+                  "GET",
+                  "POST",
+                  "PUT",
+                  "PATCH",
+                  "DELETE"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "query": {
+                "default": {},
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "body": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "reread": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "request": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "default": "GET",
+                    "type": "string",
+                    "enum": [
+                      "GET",
+                      "POST",
+                      "PUT",
+                      "PATCH",
+                      "DELETE"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "query": {
+                    "default": {},
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "headers": {
+                    "default": {},
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "body": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              },
+              "records": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "source",
+              "request"
+            ]
+          },
+          "resend": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$"
+            }
+          },
+          "issue": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "path",
+          "binding",
+          "verify"
         ]
       }
     }

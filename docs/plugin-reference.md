@@ -149,6 +149,30 @@ A failed target call is `config` on 401/403 (the install key is wrong),
 `retryable` on 408/425/429/5xx and `permanent` otherwise. Its message keeps the
 host's own error text.
 
+## Webhooks
+
+`webhooks` maps a name to an incoming provider webhook. The host routes a
+request to it by `path` and calls `handleWebhook`. Nothing runs before the
+request is verified against its binding's secrets.
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `path` | string | required | e.g. `/sync`; unique per plugin |
+| `ping` | CEL | | over `request`; `true` answers a URL probe without verifying or acting |
+| `binding` | CEL | required | over `request`; the key the host finds the binding by |
+| `verify` | CEL | required | over `request`, `config`, `secrets`; must be `true`, otherwise 401 |
+| `when` | CEL | | over `request`, `config`, `now`; `false` acknowledges and ignores |
+| `dedupe_key` | CEL | | over `request`; a key already handled is acknowledged and ignored |
+| `order` | CEL | | over `request`; a value not greater than the last handled one is ignored |
+| `call` | [target request](#target-api) | | variables `request`, `config`, `now` |
+| `reread` | `{source, request, records?}` | | reads the record from the provider, then runs that source's `when` and `call` on each record |
+| `resend` | sink[] | | forgets those sinks' snapshots; the host runs them, and they send everything |
+| `issue` | CEL | | a message the host shows as a problem with the binding |
+
+A webhook has exactly one of `call`, `reread`, `resend` and `issue`. Dedupe and
+order marks are saved only after the action succeeds, so a provider retry of a
+failed request is handled again.
+
 ## Compile-time checks
 
 `compilePlugin` reports every problem at once. Beyond the schema it checks:

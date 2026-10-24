@@ -58,6 +58,22 @@ describe('evaluate', () => {
     expect(env.compile('daysBetween("2026-12-30", "2027-01-02")').evaluate({})).toBe(3)
   })
 
+  it('signs, compares and encodes for webhooks', () => {
+    expect(env.compile('hmacSha256Hex("key", "The quick brown fox jumps over the lazy dog")').evaluate({})).toBe(
+      'f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8',
+    )
+    expect(env.compile('[secureEquals("abc", "abc"), secureEquals("abc", "abd"), secureEquals("abc", "abcd")]').evaluate({})).toEqual([
+      true,
+      false,
+      false,
+    ])
+    expect(env.compile('base64("acct:pässword")').evaluate({})).toBe(Buffer.from('acct:pässword').toString('base64'))
+    const id = env.compile('uuidFrom("req-1")').evaluate({}) as string
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    expect(env.compile('uuidFrom("req-1")').evaluate({})).toBe(id)
+    expect(env.compile('uuidFrom("req-2")').evaluate({})).not.toBe(id)
+  })
+
   it('builds maps from pairs and drops null fields', () => {
     expect(env.compile('compact({"a": 1, "b": null, "c": {"d": null}})').evaluate({})).toEqual({ a: 1, c: { d: null } })
     expect(env.compile('compact(record)').evaluate({ record: { a: null, b: 'x' } })).toEqual({ b: 'x' })

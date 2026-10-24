@@ -20,10 +20,17 @@ wrapped by `connector-hub/cel`.
 | `input.where`, `where`, `key`, `skip`, `batch.by` | `row`, `config`, `now` |
 | sink `request` | `batch`, `config`, `now` |
 | `ack` | `response`, `batch`, `config`, `now` |
+| webhook `ping`, `binding`, `dedupe_key`, `order` | `request` |
+| webhook `verify` | `request`, `config`, `secrets` |
+| webhook `when`, `call`, `issue`, `reread.request` | `request`, `config`, `now` |
+| webhook `reread.records` | `response`, `request`, `config`, `now` |
 
 `response` is `{status, headers, body}` with `body` parsed as JSON.
 `page` depends on the [paging type](sources.md#paging). `batch` is
 `{key, changes}` where each change is `{row, previous, deleted}`.
+`request` is `{method, path, headers, query, body, raw_body}`: header names in
+lower case, `body` parsed as JSON (`null` when it is not JSON) and `raw_body` the
+exact text, for signatures.
 `now` is the run's start as an ISO timestamp, the same for every expression of
 the run; use `dateIn(now, config.timezone)` for "today".
 
@@ -103,6 +110,10 @@ available:
 | `currencyDigits(string): int` | minor-unit digits: `THB` → 2, `JPY` → 0 |
 | `compact(map): map` | drops null-valued keys, for optional fields a provider wants left out |
 | `fromEntries(list): map` | a map from `[key, value]` pairs, e.g. ids keyed by platform; a repeated key is an error |
+| `hmacSha256Hex(string, string): string` | HMAC-SHA256 of a message (second) with a key (first), lowercase hex |
+| `secureEquals(string, string): bool` | constant-time comparison; use it for every signature or password check |
+| `base64(string): string` | base64 of the UTF-8 bytes, e.g. for a Basic header |
+| `uuidFrom(string): string` | a stable UUID derived from a string, e.g. an idempotency key from a delivery id |
 
 ## Limits
 
