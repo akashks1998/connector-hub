@@ -6,7 +6,7 @@ I/O and no side effects, and every expression terminates. That is what lets the
 engine inspect, cache and reorder plugin logic.
 
 The implementation is [`@marcbachmann/cel-js`](https://github.com/marcbachmann/cel-js),
-wrapped by `@connector-hub/cel`.
+wrapped by `connector-hub/cel`.
 
 ## Variables by position
 

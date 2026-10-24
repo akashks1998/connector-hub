@@ -2,7 +2,7 @@
 
 Every field of a plugin declaration. "CEL" means a [CEL expression](expressions.md);
 "template" means text with `{expr}` holes, each hole being CEL.
-The JSON Schema is published as `@connector-hub/spec/schema/plugin.schema.json`.
+The JSON Schema is published as `connector-hub/schema/plugin.schema.json`.
 
 ## Top level
 

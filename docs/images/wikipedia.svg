@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="847" height="224" viewBox="0 0 847 224" role="img" aria-label="pnpm --filter connector-hub-examples wikipedia output">
+  <style>
+    text { font: 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #d7dae0; }
+    .cmd { fill: #7ee787; }
+  </style>
+  <rect width="847" height="224" rx="10" fill="#161b22"/>
+  <circle cx="22" cy="20" r="6" fill="#ff5f57"/><circle cx="42" cy="20" r="6" fill="#febc2e"/><circle cx="62" cy="20" r="6" fill="#28c840"/>
+  <text x="20" y="58" class="cmd" xml:space="preserve">$ pnpm --filter connector-hub-examples wikipedia</text>
+  <text x="20" y="78" xml:space="preserve">Run 1 (since 2026-10-24T03:54:33Z): 2 pages, 90 edits, complete=true, cursor=2026-10-24T03:55:3…</text>
+  <text x="20" y="98" xml:space="preserve">     4024  Le Livre des mille nuits et une nuit</text>
+  <text x="20" y="118" xml:space="preserve">     1915  Wikipedia:Featured article candidates/Figure skating at the 2010 Winter Olympics – M…</text>
+  <text x="20" y="138" xml:space="preserve">     1914  David G. Greenfield</text>
+  <text x="20" y="158" xml:space="preserve">    -1753  User talk:Mitchellhobbs</text>
+  <text x="20" y="178" xml:space="preserve">      725  Netball Super League (United Kingdom)</text>
+  <text x="20" y="198" xml:space="preserve">Run 2 (from saved cursor): 1 pages, 6 edits, cursor=2026-10-24T03:55:37Z</text>
+</svg>

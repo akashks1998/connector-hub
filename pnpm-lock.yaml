@@ -7,6 +7,13 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@marcbachmann/cel-js':
+        specifier: ^8.0.0
+        version: 8.0.0
+      zod:
+        specifier: ^4.1.0
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: 24.19.2
@@ -18,62 +25,11 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2))
 
-  domains/contacts:
-    dependencies:
-      '@connector-hub/spec':
-        specifier: workspace:^
-        version: link:../../packages/spec
-
-  domains/str:
-    dependencies:
-      '@connector-hub/spec':
-        specifier: workspace:^
-        version: link:../../packages/spec
-
   examples:
     dependencies:
-      '@connector-hub/core':
-        specifier: workspace:*
-        version: link:../packages/core
-      '@connector-hub/spec':
-        specifier: workspace:*
-        version: link:../packages/spec
-      '@connector-hub/testkit':
-        specifier: workspace:*
-        version: link:../packages/testkit
-
-  packages/cel:
-    dependencies:
-      '@marcbachmann/cel-js':
-        specifier: ^8.0.0
-        version: 8.0.0
-
-  packages/core:
-    dependencies:
-      '@connector-hub/cel':
-        specifier: workspace:^
-        version: link:../cel
-      '@connector-hub/spec':
-        specifier: workspace:^
-        version: link:../spec
-      zod:
-        specifier: ^4.1.0
-        version: 4.6.5
-
-  packages/spec:
-    dependencies:
-      zod:
-        specifier: ^4.1.0
-        version: 4.6.5
-
-  packages/testkit:
-    dependencies:
-      '@connector-hub/core':
-        specifier: workspace:^
-        version: link:../core
-      '@connector-hub/spec':
-        specifier: workspace:^
-        version: link:../spec
+      connector-hub:
+        specifier: link:..
+        version: link:..
 
 packages:
 

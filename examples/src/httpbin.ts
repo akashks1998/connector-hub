@@ -3,9 +3,8 @@
  * Shows plan/apply: the first run sends every row, the second sends nothing,
  * and after one change only that row's batch is sent.
  */
-import { compilePlugin, runSink } from '@connector-hub/core'
-import type { DomainPack, PluginInput } from '@connector-hub/spec'
-import { binding, memoryHost } from '@connector-hub/testkit'
+import { compilePlugin, runSink, type DomainPack, type PluginInput } from 'connector-hub'
+import { binding, memoryHost } from 'connector-hub/testkit'
 import { fetchHttp, userAgent } from './fetch-http.ts'
 
 const tasksDomain = {

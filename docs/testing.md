@@ -1,16 +1,16 @@
 # Testing plugins
 
-`@connector-hub/testkit` runs plugins without a network or database.
+`connector-hub/testkit` runs plugins without a network or database.
 
 ```sh
-npm install --save-dev @connector-hub/testkit
+npm install connector-hub
 ```
 
 ## Fixture replay
 
 ```ts
-import { compilePlugin, runSource } from '@connector-hub/core'
-import { binding, memoryHost, replayHttp } from '@connector-hub/testkit'
+import { compilePlugin, runSource } from 'connector-hub'
+import { binding, memoryHost, replayHttp } from 'connector-hub/testkit'
 
 const http = replayHttp([
   {

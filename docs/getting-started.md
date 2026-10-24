@@ -7,11 +7,10 @@ domain, and runs it.
 ## Install
 
 ```sh
-npm install @connector-hub/core @connector-hub/domain-contacts
-npm install --save-dev @connector-hub/testkit
+npm install connector-hub
 ```
 
-Node 22 or later. The packages are ESM; on Node 22.12+ `require()` works too.
+Node 22 or later. The package is ESM; on Node 22.12+ `require()` works too.
 
 ## 1. Write the plugin
 
@@ -48,8 +47,8 @@ Every value under `records` and `fields` is a [CEL expression](expressions.md).
 ```ts
 import { readFileSync } from 'node:fs'
 import { parse } from 'yaml'
-import { compilePlugin } from '@connector-hub/core'
-import { contactsDomain } from '@connector-hub/domain-contacts'
+import { compilePlugin } from 'connector-hub'
+import { contactsDomain } from 'connector-hub/contacts'
 
 const plugin = compilePlugin(parse(readFileSync('users.plugin.yaml', 'utf8')), contactsDomain)
 ```
@@ -71,8 +70,8 @@ and somewhere to apply operations. The testkit has an in-memory host for
 trying things out; you only need to supply HTTP:
 
 ```ts
-import { runSource } from '@connector-hub/core'
-import { binding, memoryHost } from '@connector-hub/testkit'
+import { runSource } from 'connector-hub'
+import { binding, memoryHost } from 'connector-hub/testkit'
 
 const http = {
   async send(req, { timeoutMs }) {

@@ -4,9 +4,8 @@
  * `max_pages`, reports complete=false, and does not advance the cursor.
  * Unauthenticated GitHub allows 60 requests an hour.
  */
-import { compilePlugin, runSource } from '@connector-hub/core'
-import type { DomainPack, PluginInput } from '@connector-hub/spec'
-import { binding, memoryHost } from '@connector-hub/testkit'
+import { compilePlugin, runSource, type DomainPack, type PluginInput } from 'connector-hub'
+import { binding, memoryHost } from 'connector-hub/testkit'
 import { fetchHttp, userAgent } from './fetch-http.ts'
 
 const issuesDomain = {

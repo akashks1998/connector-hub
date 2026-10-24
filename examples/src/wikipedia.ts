@@ -3,9 +3,8 @@
  * Shows cursor pagination (`rccontinue`), an incremental cursor on edit time,
  * and a domain pack defined outside the library.
  */
-import { compilePlugin, runSource } from '@connector-hub/core'
-import type { DomainPack, PluginInput } from '@connector-hub/spec'
-import { binding, memoryHost } from '@connector-hub/testkit'
+import { compilePlugin, runSource, type DomainPack, type PluginInput } from 'connector-hub'
+import { binding, memoryHost } from 'connector-hub/testkit'
 import { fetchHttp, userAgent } from './fetch-http.ts'
 
 const wikiDomain = {

@@ -4,7 +4,7 @@ The engine does no I/O. Your application implements `HostPorts` and decides
 where things are stored, how requests are sent and how operations are applied.
 
 ```ts
-import type { HostPorts } from '@connector-hub/core'
+import type { HostPorts } from 'connector-hub'
 ```
 
 | Port | Called | Notes |

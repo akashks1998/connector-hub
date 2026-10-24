@@ -4,7 +4,7 @@ The engine never retries on its own. Every failure during a run is a
 `ConnectorError` whose `kind` tells your queue what to do.
 
 ```ts
-import { ConnectorError } from '@connector-hub/core'
+import { ConnectorError } from 'connector-hub'
 
 err.kind                  // 'retryable' | 'reauth' | 'permanent' | 'config'
 err.details.status        // provider HTTP status, when there was one

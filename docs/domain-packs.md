@@ -5,7 +5,7 @@ engine means one engine serves rentals, CRM, issue trackers or anything else,
 and every plugin for a domain produces the same operations.
 
 ```ts
-import type { DomainPack } from '@connector-hub/spec'
+import type { DomainPack } from 'connector-hub'
 
 export const tasksDomain = {
   domain: 'tasks',
@@ -58,7 +58,7 @@ them, or changing a key, is a major one (or a minor one while below 1.0).
 
 | Package | Domain |
 | --- | --- |
-| `@connector-hub/domain-str` | short-term rentals: `listing`, `calendar_day`, `booking` |
-| `@connector-hub/domain-contacts` | CRM: `person`, `organisation` |
+| `connector-hub/str` | short-term rentals: `listing`, `calendar_day`, `booking` |
+| `connector-hub/contacts` | CRM: `person`, `organisation` |
 
 New packs are welcome; see [CONTRIBUTING.md](../CONTRIBUTING.md).

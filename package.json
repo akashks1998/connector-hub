@@ -1,18 +1,73 @@
 {
-  "name": "connector-hub-monorepo",
-  "private": true,
-  "type": "module",
+  "name": "connector-hub",
+  "version": "0.1.0",
+  "description": "Declarative connector engine: plugins declare endpoints, paging, mappings and write rules; the host does all I/O.",
+  "keywords": [
+    "connector",
+    "integration",
+    "sync",
+    "etl",
+    "declarative",
+    "plugin",
+    "cel"
+  ],
   "license": "Apache-2.0",
-  "packageManager": "pnpm@11.1.3",
+  "author": "Akash Kumar Singh",
+  "homepage": "https://github.com/akashks1998/connector-hub#readme",
+  "bugs": "https://github.com/akashks1998/connector-hub/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akashks1998/connector-hub.git"
+  },
+  "type": "module",
+  "sideEffects": false,
   "engines": {
     "node": ">=22"
   },
+  "packageManager": "pnpm@11.1.3",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./str": {
+      "types": "./dist/str.d.ts",
+      "default": "./dist/str.js"
+    },
+    "./contacts": {
+      "types": "./dist/contacts.d.ts",
+      "default": "./dist/contacts.js"
+    },
+    "./testkit": {
+      "types": "./dist/testkit/index.d.ts",
+      "default": "./dist/testkit/index.js"
+    },
+    "./cel": {
+      "types": "./dist/cel/index.d.ts",
+      "default": "./dist/cel/index.js"
+    },
+    "./schema/*": "./schema/*",
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "schema"
+  ],
   "scripts": {
-    "build": "tsc -b && node packages/spec/scripts/build-schemas.mjs",
-    "typecheck": "tsc -b && tsc -p examples",
+    "build": "tsc -p . && node scripts/build-schemas.mjs",
+    "typecheck": "tsc -p . --noEmit && tsc -p examples",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rm -rf packages/*/dist domains/*/dist *.tsbuildinfo packages/*/*.tsbuildinfo domains/*/*.tsbuildinfo"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm clean && pnpm build && pnpm test"
+  },
+  "dependencies": {
+    "@marcbachmann/cel-js": "^8.0.0",
+    "zod": "^4.1.0"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

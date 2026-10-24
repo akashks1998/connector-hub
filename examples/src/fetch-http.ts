@@ -1,4 +1,4 @@
-import type { HostPorts } from '@connector-hub/core'
+import type { HostPorts } from 'connector-hub'
 
 /**
  * Minimal HTTP port on top of fetch. Good enough for examples; a production

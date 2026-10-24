@@ -19,8 +19,8 @@ with **Getting started**, then use the reference pages as you write plugins.
 | [Design notes](design.md) | Why the engine is shaped this way |
 
 Editors can validate plugin files with the JSON Schema shipped in
-`@connector-hub/spec/schema/plugin.schema.json`. In a YAML file, add:
+`connector-hub/schema/plugin.schema.json`. In a YAML file, add:
 
 ```yaml
-# yaml-language-server: $schema=https://unpkg.com/@connector-hub/spec/schema/plugin.schema.json
+# yaml-language-server: $schema=https://unpkg.com/connector-hub/schema/plugin.schema.json
 ```

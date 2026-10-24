@@ -7,8 +7,8 @@ and produces operations. It never opens a socket, touches a database, reads a
 clock it wasn't given, or stores anything itself. Everything with side effects
 goes through `HostPorts`, which the application implements.
 
-This is enforced by the package boundary: `@connector-hub/core` depends only on
-`spec`, `cel` and `zod`.
+This is enforced by the source layout: `src/core` imports only `src/spec`,
+`src/cel` and `zod`, never Node APIs.
 
 ## Expressions
 
