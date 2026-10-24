@@ -216,6 +216,14 @@ describe('sinks in target mode', () => {
     await expect(runSink(plugin, b, 'listing', fail(503).ports)).rejects.toMatchObject({ kind: 'retryable' })
   })
 
+  it('refuses to run without a required secret', async () => {
+    const { ports } = memoryHost({ http: replayHttp([]), target: replayTarget([unit()]), now: NOW })
+    await expect(runSink(compilePlugin(pricing), b, 'listing', ports)).rejects.toMatchObject({
+      kind: 'config',
+      message: 'binding b1: secret token is required',
+    })
+  })
+
   it('orders sinks by after, and maps events to sinks', async () => {
     const plugin = compilePlugin(pricing)
     expect(orderSinks(plugin, ['reservations', 'calendar', 'listing'])).toEqual(['listing', 'calendar', 'reservations'])

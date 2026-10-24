@@ -1,6 +1,6 @@
 {
   "name": "connector-hub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Declarative connector engine: plugins declare endpoints, paging, mappings and write rules; the host does all I/O.",
   "keywords": [
     "connector",

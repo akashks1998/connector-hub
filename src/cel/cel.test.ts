@@ -54,6 +54,7 @@ describe('evaluate', () => {
     expect(env.compile('[currencyDigits("THB"), currencyDigits("JPY"), currencyDigits("KWD")]').evaluate({})).toEqual([2, 0, 3])
     expect(() => env.compile('currencyDigits("thb")').evaluate({})).toThrow(/currency/)
     expect(env.compile('upper("thb")').evaluate({})).toBe('THB')
+    expect(env.compile('replaceAll("a-b-c", "-", "")').evaluate({})).toBe('abc')
   })
 
   it('builds maps and lists', () => {

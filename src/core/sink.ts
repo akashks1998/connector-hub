@@ -1,6 +1,6 @@
 import type { JsonValue } from '../spec/index.js'
 import type { CompiledPlugin, CompiledSink, CompiledTargetSink } from './compile.js'
-import { bindingFor } from './config.js'
+import { bindingFor, secretsFor } from './config.js'
 import { ConnectorError } from './errors.js'
 import { buildRequest, call, type CallContext } from './http.js'
 import { checkRepeat, firstPage, nextPage } from './paging.js'
@@ -63,7 +63,7 @@ export async function runSink<Tx>(
   }))
   if (options.dryRun) return { plan, sent: 0, applied: false }
 
-  const ctx: CallContext = { plugin, binding, ports: ports as HostPorts<never>, secrets: await ports.secrets.get(binding.id) }
+  const ctx: CallContext = { plugin, binding, ports: ports as HostPorts<never>, secrets: await secretsFor(plugin, binding, ports.secrets) }
   let sent = 0
   for (const batch of plan) {
     const progress = `batch ${sent + 1} of ${plan.length}, ${sent} sent`

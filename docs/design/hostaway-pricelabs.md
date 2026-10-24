@@ -1,6 +1,12 @@
 # Design: PriceLabs and Hostaway plugins
 
-Status: draft for review, 2026-10-24. Nothing here is built yet.
+Status: draft for review, 2026-10-24.
+
+Built so far: the public API additions (Propool `dev`), engine 0.2 target mode
+(E1, E3, E4, E8 date/currency helpers, E9, E10) and the PriceLabs sinks in
+`src/plugins/pricelabs.ts`. The real plugin uses the public API's actual paths
+(`/rental-units/{id}/calendar`, `/bookings/by-provider/hostaway/{id}`, …) and
+`config.*` for binding values; the YAML below is the earlier sketch.
 
 Scope is exactly three flows, nothing generic:
 

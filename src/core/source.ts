@@ -1,6 +1,6 @@
 import type { JsonValue, Operation } from '../spec/index.js'
 import type { CompiledPlugin, CompiledSource } from './compile.js'
-import { bindingFor } from './config.js'
+import { bindingFor, secretsFor } from './config.js'
 import { ConnectorError } from './errors.js'
 import { buildRequest, call, type CallContext } from './http.js'
 import { checkRepeat, firstPage, nextPage } from './paging.js'
@@ -45,7 +45,7 @@ export async function runSource<Tx>(
   const origin = { plugin: plugin.declaration.plugin, version: plugin.declaration.version, source: sourceName }
 
   const previousCursor = await ports.state.getCursor(binding.id, sourceName)
-  const ctx: CallContext = { plugin, binding, ports: ports as HostPorts<never>, secrets: await ports.secrets.get(binding.id) }
+  const ctx: CallContext = { plugin, binding, ports: ports as HostPorts<never>, secrets: await secretsFor(plugin, binding, ports.secrets) }
   const now = (ports.clock?.now() ?? new Date()).toISOString()
   const operations: Operation[] = []
   const calls: TargetHttpRequest[] = []

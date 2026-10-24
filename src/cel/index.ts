@@ -275,6 +275,14 @@ const BUILTIN_FUNCTIONS: CelFunction[] = [
     handler: ((s: string) => s.toUpperCase()) as never,
   },
   {
+    signature: 'replaceAll(string, string, string): string',
+    description: 'Replaces every occurrence of the second argument with the third.',
+    handler: ((s: string, find: string, by: string) => {
+      if (find === '') throw new Error('replaceAll needs a non-empty search string')
+      return s.split(find).join(by)
+    }) as never,
+  },
+  {
     signature: 'dateIn(string, string): string',
     description: 'The calendar date (YYYY-MM-DD) of an ISO timestamp in an IANA time zone, e.g. dateIn(now, "Asia/Bangkok").',
     handler: ((timestamp: string, zone: string) => {

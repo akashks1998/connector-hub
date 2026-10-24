@@ -14,16 +14,17 @@ import type { HostPorts } from 'connector-hub'
 | `tokens.get/put(bindingId, token)` | OAuth presets | `put(id, null)` clears the cache |
 | `state.getCursor(bindingId, source)` | start of a source run | `null` if none |
 | `state.getRemote(bindingId, sink)` | start of a sink run | key → last written row |
-| `read({bindingId, entity, fields})` | start of a sink run | return only the requested fields |
+| `read({bindingId, entity, fields})` | start of a domain-mode sink run | return only the requested fields |
+| `target.send({method, path, body})` | target-mode `read` and source `call` | optional; your own API. Prefix your API root, add the install's credentials, keep `path` under the root |
 | `transaction(fn)` | commit points | `fn(tx)` must run in one transaction |
 | `apply(operations, tx)` | source commit | write the operations to your storage |
 | `saveCursor(bindingId, source, cursor, tx)` | source commit | |
-| `saveRemote(bindingId, sink, rows, tx)` | after each acked batch | **merge** into the snapshot, don't replace it |
+| `saveRemote(bindingId, sink, rows, tx)` | after each acked batch | **merge** into the snapshot, don't replace it; a `null` row removes that key |
 
 Node 22 or later. A binding's `config` may hold anything; only the fields the
 plugin declares (and not its secrets) are passed to its expressions.
 | `budget.take(plugin)` | optional, before each request | resolve when a request may go out |
-| `clock.now()` | optional | for token expiry; defaults to the system clock |
+| `clock.now()` | optional | for token expiry and `now`; defaults to the system clock |
 
 ## HTTP
 

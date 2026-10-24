@@ -26,3 +26,12 @@ export function bindingFor(plugin: CompiledPlugin, binding: Binding): Binding {
   }
   return { id: binding.id, config }
 }
+
+/** The binding's secrets, refusing a run when a required one is missing. */
+export async function secretsFor(plugin: CompiledPlugin, binding: Binding, store: { get(bindingId: string): Promise<Record<string, string>> }) {
+  const secrets = await store.get(binding.id)
+  for (const [name, field] of Object.entries(plugin.declaration.config)) {
+    if (field.secret && field.required && !secrets[name]) throw new ConnectorError('config', `binding ${binding.id}: secret ${name} is required`)
+  }
+  return secrets
+}

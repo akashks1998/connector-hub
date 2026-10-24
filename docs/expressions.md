@@ -12,18 +12,20 @@ wrapped by `connector-hub/cel`.
 
 | Where | Variables |
 | --- | --- |
-| `auth.*` | `secrets`, `config` |
-| source `request` | `config`, `cursor`, `page` |
-| `records`, `paginate.next` | `response`, `config`, `cursor`, `page` |
-| `emit.when`, `emit.fields` | `record`, `config`, `cursor` |
+| `auth.*`, `headers` | `secrets`, `config` |
+| source `request`, sink `read` | `config`, `cursor`, `page`, `now` |
+| `records`, `paginate.next` | `response`, `config`, `cursor`, `page`, `now` |
+| source `when`, `call`, `emit.when`, `emit.fields` | `record`, `config`, `cursor`, `now` |
 | `cursor.value` | `record` |
-| `input.where`, `batch.by` | `row`, `config` |
-| sink `request` | `batch`, `config` |
-| `ack` | `response`, `batch`, `config` |
+| `input.where`, `where`, `key`, `skip`, `batch.by` | `row`, `config`, `now` |
+| sink `request` | `batch`, `config`, `now` |
+| `ack` | `response`, `batch`, `config`, `now` |
 
 `response` is `{status, headers, body}` with `body` parsed as JSON.
 `page` depends on the [paging type](sources.md#paging). `batch` is
-`{key, changes}` where each change is `{row, previous}`.
+`{key, changes}` where each change is `{row, previous, deleted}`.
+`now` is the run's start as an ISO timestamp, the same for every expression of
+the run; use `dateIn(now, config.timezone)` for "today".
 
 Using a variable that isn't available in that position is a compile error.
 
@@ -94,6 +96,11 @@ available:
 | `fromMinor(int, int): double` | `fromMinor(1234, 2)` → `12.34` |
 | `lower(string): string` | lower case |
 | `datePart(string): string` | `"2026-10-23T08:00:00Z"` → `"2026-10-23"` |
+| `upper(string): string` | upper case |
+| `replaceAll(string, string, string): string` | `replaceAll("a-b", "-", "")` → `"ab"` |
+| `dateIn(string, string): string` | date of a timestamp in an IANA zone: `dateIn(now, "Asia/Bangkok")` |
+| `addDays(string, int): string` | `addDays("2026-12-31", 1)` → `"2027-01-01"` |
+| `currencyDigits(string): int` | minor-unit digits: `THB` → 2, `JPY` → 0 |
 
 ## Limits
 

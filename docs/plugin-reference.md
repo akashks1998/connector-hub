@@ -11,11 +11,12 @@ The JSON Schema is published as `connector-hub/schema/plugin.schema.json`.
 | `plugin` | string | required | lower-kebab-case name, e.g. `acme-pms` |
 | `version` | semver | required | the plugin's own version, e.g. `1.2.0` |
 | `description` | string | | |
-| `engine` | caret range | required | engine contract, e.g. `^0.1` |
-| `domain` | `{name, version}` | required | domain pack name and caret range, e.g. `{ name: str, version: ^0.1 }` |
+| `engine` | caret range | required | engine contract, e.g. `^0.2`. This engine runs `^0.1` and `^0.2` plugins |
+| `domain` | `{name, version}` | | domain pack name and caret range, e.g. `{ name: str, version: ^0.1 }`. Needed for `emit`, `input` and `owns`; a plugin that only talks to the [target API](#target-api) has none |
 | `hosts` | URL[] | required | `http(s)` origins the plugin may call. Paths are relative to the first one |
 | `config` | map of [config fields](#config) | `{}` | |
 | `auth` | [auth](auth.md) | `{type: none}` | |
+| `headers` | name → CEL | `{}` | on every provider request, over `secrets` and `config`; e.g. a partner key |
 | `limits` | [limits](#limits) | defaults below | |
 | `owns` | entity → field[] | `{}` | fields this provider is the source of truth for |
 | `sources` | map of [sources](#sources) | `{}` | names are lower_snake_case |
@@ -41,10 +42,10 @@ config:
 | `description` | string | |
 
 Non-secret fields are visible as `config.<name>` in every expression. Secret
-fields are visible as `secrets.<name>` **only in `auth`**. Fields must be read
+fields are visible as `secrets.<name>` **only in `auth` and `headers`**. Fields must be read
 by name: referencing an undeclared field, or `config`/`secrets` as a whole map,
 is a compile error. At run time only declared config reaches expressions;
-missing required values and wrong types fail the run as `config`.
+missing required values (secrets included) and wrong types fail the run as `config`.
 
 ## Limits
 
@@ -82,10 +83,12 @@ refused.
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `description` | string | | |
-| `request` | [request](#request) | required | `GET` or `POST`; variables: `config`, `cursor`, `page` |
+| `request` | [request](#request) | required | `GET` or `POST`; variables: `config`, `cursor`, `page`, `now` |
 | `paginate` | [paginate](sources.md#paging) | `{type: none}` | |
 | `records` | CEL | required | over `response`; must return a list |
-| `emit` | emit[] | required, ≥1 | |
+| `when` | CEL | | over `record`, `config`, `cursor`, `now`; skipped records still move the cursor |
+| `emit` | emit[] | | domain operations per record |
+| `call` | [target request](#target-api) | | one target API request per record, variables as for `when`. A source has `emit` or `call` |
 | `cursor` | `{value: CEL}` | | over `record`; see [cursors](sources.md#incremental-cursors) |
 | `filters` | string[] | `[]` | reserved for engine query push-down |
 
@@ -99,26 +102,60 @@ Emit:
 
 ## Sinks
 
+A sink reads its rows either from the host (`input`, domain mode) or from the
+[target API](#target-api) (`read`, target mode).
+
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `description` | string | | |
-| `input.entity` | string | required | an entity of the domain pack |
-| `input.fields` | string[] | required, ≥1 | the only fields the sink sees, plus the key |
-| `input.where` | CEL | | over `row`, `config` |
+| `input.entity` | string | domain mode | an entity of the domain pack |
+| `input.fields` | string[] | domain mode, ≥1 | the only fields the sink sees, plus the key |
+| `input.where` | CEL | | over `row`, `config`, `now` |
+| `read` | `{path, query, records, paginate}` | target mode | a `GET` on the target API; every page is read before anything is sent |
+| `key` | CEL | target mode, required | over `row`; a string or number identifying the row |
+| `fields` | string[] | whole row | target mode: fields compared with, and saved as, the last write |
+| `where` | CEL | | target mode: rows where it isn't `true` count as absent |
+| `skip` | CEL | | over `row`; rows where it is `true` are neither sent nor treated as deleted (echo guard) |
+| `on_delete` | `send` `ignore` | `ignore` | `send`: a written row that is now absent is sent once more with `deleted: true` and its saved values, then forgotten |
+| `on` | string[] | `[]` | host events that should run the sink; see `sinksFor` |
+| `after` | sink[] | `[]` | sinks that run first when both run; cycles are a compile error |
 | `batch.size` | int | 50 | |
-| `batch.by` | CEL | | over `row`, `config`; groups rows that share a request |
-| `request` | [request](#request) | required | variables: `batch`, `config` |
-| `ack` | CEL | any 2xx | over `response`, `batch`, `config`; `false` fails the batch |
+| `batch.by` | CEL | | over `row`, `config`, `now`; groups rows that share a request |
+| `request` | [request](#request) | required | variables: `batch`, `config`, `now` |
+| `ack` | CEL | any 2xx | over `response`, `batch`, `config`, `now`; `false` fails the batch |
+
+With `on_delete: send`, a deleted change only has the fields that were saved,
+so list in `fields` everything the request needs for a deletion.
 
 See [Sinks](sinks.md) for how diffs and batches work.
+
+## Target API
+
+The target is the host's own API, for example Propool's public API. A plugin
+that reads and writes through it needs no domain pack: the host's API does the
+validation, permissions and business rules. The host adds the base URL and the
+install's credentials (see [`target`](host-integration.md)); the plugin never
+sees them.
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `method` | `GET` `POST` `PUT` `PATCH` `DELETE` | `GET` | `read` is always `GET` |
+| `path` | template | required | relative to the target root; `.` and `..` segments are refused |
+| `query` | name → CEL | `{}` | `null` values are left out |
+| `body` | CEL | | sent as JSON |
+
+A failed target call is `config` on 401/403 (the install key is wrong),
+`retryable` on 408/425/429/5xx and `permanent` otherwise. Its message keeps the
+host's own error text.
 
 ## Compile-time checks
 
 `compilePlugin` reports every problem at once. Beyond the schema it checks:
 
-- the engine and domain pack versions satisfy the plugin's ranges;
+- the engine and domain pack versions satisfy the plugin's ranges, and `emit`, `input` and `owns` have a domain;
 - every expression parses, type-checks, and stays within the size limits;
-- `config.*` and `secrets.*` refer to declared fields, and secrets appear only in `auth`;
+- `config.*` and `secrets.*` refer to declared fields, and secrets appear only in `auth` and `headers`;
+- `after` names existing sinks and has no cycle;
 - paths start with `/`, and an OAuth `token_url` is on one of `hosts`;
 - emitted operations and fields exist, and every key field is set;
 - sources only use `GET` or `POST`, and no request sets a reserved or invalid header;
