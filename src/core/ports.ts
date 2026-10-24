@@ -60,7 +60,7 @@ export interface HostPorts<Tx = unknown> {
    * The host's own API, for plugins that read and write through it (`read`, `call`). The host
    * adds the base URL and this install's credentials, and must keep `path` under its API root.
    */
-  target?: { send(request: TargetHttpRequest): Promise<HttpResponse> }
+  target?: { send(request: TargetHttpRequest, limits: { timeoutMs: number; maxBodyBytes: number }): Promise<HttpResponse> }
   /** Reads the declared input of a sink: the key fields plus the declared fields. */
   read(query: { bindingId: string; entity: string; fields: string[] }): Promise<Row[]>
   /** Runs `fn` in one host transaction. Operations and cursors commit together. */

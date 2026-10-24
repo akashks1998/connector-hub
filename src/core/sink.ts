@@ -6,8 +6,15 @@ import { buildRequest, call, type CallContext } from './http.js'
 import { checkRepeat, firstPage, nextPage } from './paging.js'
 import type { Binding, HostPorts, HttpRequest, Row } from './ports.js'
 import type { RunOptions } from './source.js'
-import { buildTargetRequest, callTarget } from './target.js'
+import { buildTargetRequest, callTarget, targetLimits } from './target.js'
 import { canonical } from './values.js'
+
+/**
+ * Snapshot entry holding the binding config the last write was made with. When the config
+ * changes (a new listing id, currency…) every row is sent again. Not a valid row key: real
+ * keys are JSON arrays.
+ */
+const CONFIG_KEY = '#config'
 
 export interface Change {
   /** Stable record key: the JSON of the key values (domain mode) or of the `key` value (target mode). */
@@ -54,8 +61,13 @@ export async function runSink<Tx>(
     sink.mode === 'domain'
       ? (await ports.read({ bindingId: binding.id, entity: sink.entity, fields: sink.visibleFields })).map((r) => pick(r, sink.visibleFields))
       : await readTarget(plugin, sink, binding, ports as HostPorts<never>, now)
-  const remote = await ports.state.getRemote(binding.id, sinkName)
-  const { changes, forgotten } = diff(sink, rows, remote, binding, now)
+  const stored = await ports.state.getRemote(binding.id, sinkName)
+  const config = { config: canonical(binding.config) }
+  // Snapshots written before the config entry existed count as unchanged.
+  const savedConfig = stored.get(CONFIG_KEY)
+  const configChanged = savedConfig !== undefined && savedConfig !== null && savedConfig.config !== config.config
+  const remote = new Map([...stored].filter(([k, v]) => k !== CONFIG_KEY && v !== null))
+  const { changes, forgotten } = diff(sink, rows, remote, binding, now, configChanged)
   const plan = batches(sink, changes, binding, now).map(({ key, changes }) => ({
     key,
     changes,
@@ -76,13 +88,17 @@ export async function runSink<Tx>(
       if (e instanceof ConnectorError) throw new ConnectorError(e.kind, `${e.message} (${progress})`, { ...e.details, cause: e, sent })
       throw e
     }
-    const saved = new Map(batch.changes.map((c) => [c.key, c.deleted ? null : snapshot(sink, c.row)]))
+    const saved = new Map<string, Row | null>(batch.changes.map((c) => [c.key, c.deleted ? null : c.row]))
+    saved.set(CONFIG_KEY, config)
     await ports.transaction((tx) => ports.saveRemote(binding.id, sinkName, saved, tx))
     sent++
   }
-  // Written rows that are gone and need no message: forget them, so a return is sent again.
-  if (forgotten.length > 0) {
-    await ports.transaction((tx) => ports.saveRemote(binding.id, sinkName, new Map(forgotten.map((k) => [k, null])), tx))
+  // Target mode: written rows that are gone and need no message are forgotten, so a return
+  // is sent again. Nothing is forgotten after a failed batch, so that is retried first.
+  if (forgotten.length > 0 || (plan.length === 0 && configChanged)) {
+    const saved = new Map<string, Row | null>(forgotten.map((k) => [k, null]))
+    saved.set(CONFIG_KEY, config)
+    await ports.transaction((tx) => ports.saveRemote(binding.id, sinkName, saved, tx))
   }
   return { plan, sent, applied: true }
 }
@@ -134,7 +150,7 @@ async function readTarget(plugin: CompiledPlugin, sink: CompiledTargetSink, bind
   for (let pages = 0; ; pages++) {
     if (pages >= limits.max_pages) throw new ConnectorError('permanent', `${where}: more than ${limits.max_pages} pages`)
     const vars = { config: binding.config, cursor: null, page, now }
-    const response = await callTarget(ports, buildTargetRequest(sink.read.request, vars))
+    const response = await callTarget(ports, buildTargetRequest(sink.read.request, vars), targetLimits(plugin))
     const list = sink.read.records.evaluate({ ...vars, response })
     if (!Array.isArray(list)) throw new ConnectorError('permanent', `${where}.records did not return a list`)
     checkRepeat(list as JsonValue[], seen, where)
@@ -155,6 +171,7 @@ function diff(
   remote: Map<string, Row>,
   binding: Binding,
   now: string,
+  resendAll: boolean,
 ): { changes: Change[]; forgotten: string[] } {
   const changes: Change[] = []
   const seen = new Set<string>()
@@ -163,13 +180,14 @@ function diff(
     if (sink.where && sink.where.evaluate(vars) !== true) continue
     const key = keyOf(sink, row, vars)
     if (seen.has(key)) {
-      const what = sink.mode === 'domain' ? `${sink.entity} rows` : 'rows'
-      throw new ConnectorError('permanent', `sinks.${sink.name}: two ${what} have the key ${key}`)
+      // A target read that pages by offset can return a row twice when it changes mid-read.
+      if (sink.mode === 'target') throw new ConnectorError('retryable', `sinks.${sink.name}: the read returned the key ${key} twice; it changed while being read`)
+      throw new ConnectorError('permanent', `sinks.${sink.name}: two ${sink.entity} rows have the key ${key}`)
     }
     seen.add(key)
     if (sink.skip && sink.skip.evaluate(vars) === true) continue
     const previous = remote.get(key) ?? null
-    if (previous === null || canonical(snapshot(sink, row)) !== canonical(snapshot(sink, previous))) {
+    if (resendAll || previous === null || canonical(compared(sink, row)) !== canonical(compared(sink, previous))) {
       changes.push({ key, row, previous, deleted: false })
     }
   }
@@ -177,7 +195,8 @@ function diff(
   for (const [key, previous] of remote) {
     if (seen.has(key)) continue
     if (sink.onDelete === 'send') changes.push({ key, row: previous, previous, deleted: true })
-    else forgotten.push(key)
+    // Domain mode keeps 0.1 behaviour: an absent row keeps its snapshot.
+    else if (sink.mode === 'target') forgotten.push(key)
   }
   return { changes: changes.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)), forgotten }
 }
@@ -197,8 +216,8 @@ function keyOf(sink: CompiledSink, row: Row, vars: Record<string, unknown>): str
   return JSON.stringify([value])
 }
 
-/** What is compared with, and saved as, the last write. */
-function snapshot(sink: CompiledSink, row: Row): Row {
+/** What is compared with the last write. The whole row is saved, so deletions can use any field. */
+function compared(sink: CompiledSink, row: Row): Row {
   if (sink.mode === 'domain') return row
   return sink.fields ? pick(row, sink.fields) : row
 }

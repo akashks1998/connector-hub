@@ -239,7 +239,9 @@ export function compilePlugin(input: PluginInput | unknown, domainInput?: Domain
   ): CompiledTargetRequest => {
     if (!r.path.startsWith('/')) problems.push(`${where}.path: must start with "/"`)
     // Holes are URL-encoded; literal text must not climb out of the target root.
+    const literal = r.path.replace(/\{[^}]*\}/g, 'x')
     if (r.path.split(/[/?]/).some((seg) => seg === '..' || seg === '.')) problems.push(`${where}.path: "." and ".." segments are not allowed`)
+    else if (r.path.startsWith('//') || /[\\#?%\s]/.test(literal)) problems.push(`${where}.path: must not start with "//" or contain "\\", "#", "?", "%" or spaces`)
     return {
       method: r.method ?? 'GET',
       path: compile(env, r.path, `${where}.path`, true),

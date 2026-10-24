@@ -113,7 +113,7 @@ A sink reads its rows either from the host (`input`, domain mode) or from the
 | `input.where` | CEL | | over `row`, `config`, `now` |
 | `read` | `{path, query, records, paginate}` | target mode | a `GET` on the target API; every page is read before anything is sent |
 | `key` | CEL | target mode, required | over `row`; a string or number identifying the row |
-| `fields` | string[] | whole row | target mode: fields compared with, and saved as, the last write |
+| `fields` | string[] | whole row | target mode: fields compared with the last write (the whole row is saved) |
 | `where` | CEL | | target mode: rows where it isn't `true` count as absent |
 | `skip` | CEL | | over `row`; rows where it is `true` are neither sent nor treated as deleted (echo guard) |
 | `on_delete` | `send` `ignore` | `ignore` | `send`: a written row that is now absent is sent once more with `deleted: true` and its saved values, then forgotten |
@@ -124,8 +124,9 @@ A sink reads its rows either from the host (`input`, domain mode) or from the
 | `request` | [request](#request) | required | variables: `batch`, `config`, `now` |
 | `ack` | CEL | any 2xx | over `response`, `batch`, `config`, `now`; `false` fails the batch |
 
-With `on_delete: send`, a deleted change only has the fields that were saved,
-so list in `fields` everything the request needs for a deletion.
+A deleted change carries the whole row as last written. Changing the binding
+config sends every row again. A target read that returns one key twice (rows
+moved while paging) fails as `retryable`.
 
 See [Sinks](sinks.md) for how diffs and batches work.
 
@@ -140,7 +141,7 @@ sees them.
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `method` | `GET` `POST` `PUT` `PATCH` `DELETE` | `GET` | `read` is always `GET` |
-| `path` | template | required | relative to the target root; `.` and `..` segments are refused |
+| `path` | template | required | relative to the target root. Refused: `//` at the start, `.`/`..` segments (also encoded), backslashes, `#`, `?`, `%` in literal text |
 | `query` | name → CEL | `{}` | `null` values are left out |
 | `body` | CEL | | sent as JSON |
 

@@ -44,6 +44,7 @@ const booking = (extra: Record<string, unknown> = {}) => ({
   totalAmountMinor: 1350000,
   channel: 'Airbnb',
   bookedAt: '2026-10-01T08:15:00.000Z',
+  receivedAt: '2026-10-01T08:16:00.000Z',
   ...extra,
 })
 
@@ -73,7 +74,7 @@ describe('pricelabs plugin', () => {
       http,
       target: replayTarget(
         target(
-          [day('2026-10-25'), day('2026-10-26', { available: false, bookingId: 'bk', stopSell: false }), day('2026-10-27', { blockId: 'bl' })],
+          [day('2026-10-25'), day('2026-10-26', { available: false, bookingId: 'bk', stopSell: false }), day('2026-10-27', { available: false, blockId: 'bl' })],
           [booking()],
           [{ id: '99999999-8888-4777-8666-555555555555', dateFrom: '2026-12-20', dateTo: '2026-12-27', reason: 'owner_stay', note: null }],
         ),
@@ -108,8 +109,8 @@ describe('pricelabs plugin', () => {
               currency: 'THB',
               data: [
                 { date: '2026-10-25', end_date: '2026-10-25', price: 4500, available_units: 1, booked_units: 0, blocked_units: 0, settings: { min_stay: 2 } },
-                { date: '2026-10-26', end_date: '2026-10-26', price: 4500, available_units: 1, booked_units: 1, blocked_units: 0, settings: { min_stay: 2 } },
-                { date: '2026-10-27', end_date: '2026-10-27', price: 4500, available_units: 1, booked_units: 0, blocked_units: 1, settings: { min_stay: 2 } },
+                { date: '2026-10-26', end_date: '2026-10-26', price: 4500, available_units: 0, booked_units: 1, blocked_units: 0, settings: { min_stay: 2 } },
+                { date: '2026-10-27', end_date: '2026-10-27', price: 4500, available_units: 0, booked_units: 0, blocked_units: 1, settings: { min_stay: 2 } },
               ],
             },
           ],
@@ -150,6 +151,7 @@ describe('pricelabs plugin', () => {
                   currency: 'THB',
                   start_date: '2026-12-20',
                   end_date: '2026-12-28',
+                  total_days: 8,
                   total_cost: 0,
                   status: 'blocked',
                   booking_source: 'propool',
@@ -187,6 +189,6 @@ describe('pricelabs plugin', () => {
     expect(bodies[0].calendars[0].data.map((d: { date: string; price: number }) => [d.date, d.price])).toEqual([['2026-10-26', 4700]])
     expect(bodies[1].reservations[0].data[0]).toMatchObject({ status: 'canceled' })
     expect(bodies[2].reservations[0].data[0]).toMatchObject({ reservation_id: 'propool_block_blk1', status: 'canceled' })
-    expect(next.remote.get('b1/blocks')!.size).toBe(0)
+    expect([...next.remote.get('b1/blocks')!.keys()]).toEqual(['#config'])
   })
 })

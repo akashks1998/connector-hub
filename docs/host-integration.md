@@ -15,11 +15,11 @@ import type { HostPorts } from 'connector-hub'
 | `state.getCursor(bindingId, source)` | start of a source run | `null` if none |
 | `state.getRemote(bindingId, sink)` | start of a sink run | key → last written row |
 | `read({bindingId, entity, fields})` | start of a domain-mode sink run | return only the requested fields |
-| `target.send({method, path, body})` | target-mode `read` and source `call` | optional; your own API. Prefix your API root, add the install's credentials, keep `path` under the root |
+| `target.send({method, path, body}, {timeoutMs, maxBodyBytes})` | target-mode `read` and source `call` | optional; your own API. Prefix your API root (concatenate, don't use `new URL(path, base)`), add the install's credentials, enforce both limits |
 | `transaction(fn)` | commit points | `fn(tx)` must run in one transaction |
 | `apply(operations, tx)` | source commit | write the operations to your storage |
 | `saveCursor(bindingId, source, cursor, tx)` | source commit | |
-| `saveRemote(bindingId, sink, rows, tx)` | after each acked batch | **merge** into the snapshot, don't replace it; a `null` row removes that key |
+| `saveRemote(bindingId, sink, rows, tx)` | after each acked batch | **merge** into the snapshot, don't replace it; a `null` row removes that key; keep the `#config` entry like any other |
 
 Node 22 or later. A binding's `config` may hold anything; only the fields the
 plugin declares (and not its secrets) are passed to its expressions.

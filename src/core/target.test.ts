@@ -1,4 +1,5 @@
 import type { PluginInput } from '../spec/index.js'
+import { strDomain } from '../domains/str/index.js'
 import { binding, memoryHost, replayHttp, replayTarget, type Fixture, type TargetFixture } from '../testkit/index.js'
 import { describe, expect, it } from 'vitest'
 import { compilePlugin, ConnectorError, orderSinks, PluginValidationError, runSink, runSinks, runSource, sinksFor } from './index.js'
@@ -148,8 +149,9 @@ describe('sinks in target mode', () => {
       ],
     })
     expect(first.h.sent[0]!.headers['x-integration-token']).toBe('tok-123')
-    // Only the compared fields are kept as the last write.
-    expect([...first.remote.get('b1/calendar')!.values()][0]).toEqual({ date: '2026-10-25', rateMinor: 450000 })
+    // The whole row is kept, with the config it was written under.
+    expect(first.remote.get('b1/calendar')!.get('["2026-10-25"]')).toEqual(days[0])
+    expect(first.remote.get('b1/calendar')!.get('#config')).toEqual({ config: '{"timezone":"Asia/Bangkok","unit_id":"u1"}' })
 
     // Next run: one price changed, `available` changed too but is not compared.
     const next = host([calendar([{ ...days[0], available: false }, { ...days[1], rateMinor: 470000 }])], [ok('/calendar')])
@@ -194,7 +196,7 @@ describe('sinks in target mode', () => {
       { key: '["k0"]', row: { id: 'k0', status: 'confirmed', arrival: '2026-10-01' }, previous: { id: 'k0', status: 'confirmed', arrival: '2026-10-01' }, deleted: true },
     ])
     expect(JSON.parse(h.h.sent[0]!.body!)).toEqual({ data: [{ id: 'k0', status: 'canceled' }] })
-    expect([...h.remote.get('b1/reservations')!.keys()]).toEqual(['["k1"]'])
+    expect([...h.remote.get('b1/reservations')!.keys()].sort()).toEqual(['#config', '["k1"]'])
   })
 
   it('forgets rows that disappear when on_delete is ignore', async () => {
@@ -203,7 +205,56 @@ describe('sinks in target mode', () => {
     h.remote.set('b1/calendar', new Map([['["2026-10-01"]', { date: '2026-10-01', rateMinor: 1 }]]))
     const result = await runSink(plugin, b, 'calendar', h.ports)
     expect(result.plan).toEqual([])
-    expect(h.remote.get('b1/calendar')!.size).toBe(0)
+    expect([...h.remote.get('b1/calendar')!.keys()]).toEqual(['#config'])
+  })
+
+  it('sends everything again when the binding config changes', async () => {
+    const plugin = compilePlugin(pricing)
+    const days = [{ date: '2026-10-25', rateMinor: 1 }]
+    const first = host([calendar(days)], [ok('/calendar')])
+    await runSink(plugin, b, 'calendar', first.ports)
+    const same = host([calendar(days)], [])
+    same.remote.set('b1/calendar', first.remote.get('b1/calendar')!)
+    expect((await runSink(plugin, b, 'calendar', same.ports)).plan).toEqual([])
+    const moved = host([{ ...calendar(days), request: { path: '/rental-units/u2/calendar?from=2026-10-25&to=2026-10-27' } }], [ok('/calendar')])
+    moved.remote.set('b1/calendar', first.remote.get('b1/calendar')!)
+    expect((await runSink(plugin, binding('b1', { unit_id: 'u2', timezone: 'Asia/Bangkok' }), 'calendar', moved.ports)).sent).toBe(1)
+  })
+
+  it('can use any saved field in a deletion, not only the compared ones', async () => {
+    const plugin = compilePlugin({
+      ...pricing,
+      sinks: { r: { ...pricing.sinks!.reservations!, after: [], fields: ['status'], request: { method: 'POST', path: '/reservations', body: 'batch.changes.map(c, c.row.guest)' } } },
+    })
+    const h = host([{ request: { path: '/bookings?listingId=u1' }, response: { body: { data: [], nextCursor: null } } }], [ok('/reservations')])
+    h.remote.set('b1/r', new Map([['["k0"]', { id: 'k0', status: 'confirmed', guest: 'Ava' }]]))
+    await runSink(plugin, b, 'r', h.ports)
+    expect(JSON.parse(h.h.sent[0]!.body!)).toEqual(['Ava'])
+  })
+
+  it('treats a key read twice as a read that shifted, worth retrying', async () => {
+    const plugin = compilePlugin(pricing)
+    const h = host([calendar([{ date: '2026-10-25', rateMinor: 1 }, { date: '2026-10-25', rateMinor: 2 }])], [])
+    await expect(runSink(plugin, b, 'calendar', h.ports)).rejects.toMatchObject({ kind: 'retryable' })
+  })
+
+  it('refuses target paths that could leave the target root', async () => {
+    const problems = (path: string) => {
+      try {
+        compilePlugin({ ...pricing, sinks: { a: { ...pricing.sinks!.listing!, read: { path, records: '[]' } } } })
+        return []
+      } catch (e) {
+        return (e as PluginValidationError).problems
+      }
+    }
+    for (const path of ['//evil.example/x', '/%2e%2e/admin', '/a\\b', '/a#b', '/a?b=1']) expect(problems(path)).toHaveLength(1)
+    // A hole that renders an encoded "..": encoded by the template, then refused on decode.
+    const plugin = compilePlugin({ ...pricing, sinks: { a: { ...pricing.sinks!.listing!, read: { path: '/rental-units/{config.unit_id}', records: '[]' } } } })
+    const h = host([], [])
+    await expect(runSink(plugin, binding('b1', { unit_id: '../admin', timezone: 'UTC' }), 'a', h.ports)).rejects.toMatchObject({
+      kind: 'permanent',
+      message: expect.stringMatching(/refused target path/),
+    })
   })
 
   it('reports target failures with the host message, and a rejected key as config', async () => {
@@ -298,9 +349,48 @@ describe('sources with call', () => {
     expect(refused.cursors.size).toBe(0)
   })
 
+  it('refuses to send calls when a cap cut the read short', async () => {
+    const plugin = compilePlugin({ ...importer, limits: { max_records: 1 } })
+    const h = host([], [{ ...reservations, response: { body: { result: [
+      { id: 7, status: 'confirmed', updatedOn: '2026-10-20T00:00:00Z' },
+      { id: 9, status: 'confirmed', updatedOn: '2026-10-22T00:00:00Z' },
+    ] } } }])
+    await expect(runSource(plugin, binding('b1', { unit_id: 'u1' }), 'reservations', h.ports)).rejects.toThrow(/page or record limit/)
+    expect(h.t.sent).toEqual([])
+  })
+
   it('needs a target port', async () => {
     const plugin = compilePlugin(importer)
     const { ports } = memoryHost({ http: replayHttp([reservations]) })
     await expect(runSource(plugin, binding('b1', { unit_id: 'u1' }), 'reservations', ports)).rejects.toMatchObject({ kind: 'config' })
+  })
+})
+
+describe('0.1 domain sinks', () => {
+  it('keep the snapshot of rows that are absent or filtered out, so nothing is re-sent', async () => {
+    const plugin = compilePlugin(
+      {
+        plugin: 'old',
+        version: '1.0.0',
+        engine: '^0.1',
+        domain: { name: 'str', version: '^0.1' },
+        hosts: [API],
+        sinks: {
+          days: {
+            input: { entity: 'calendar_day', fields: ['available'], where: 'row.available' },
+            request: { method: 'POST', path: '/days', body: 'batch.changes.map(c, c.row.date)' },
+          },
+        },
+      },
+      strDomain,
+    )
+    const row = { listing_id: 'l1', date: '2026-10-25', available: true }
+    const first = memoryHost({ http: replayHttp([ok('/days')]), rows: { calendar_day: [row] } })
+    await runSink(plugin, b, 'days', first.ports)
+    for (const rows of [[], [{ ...row, available: false }], [row]]) {
+      const next = memoryHost({ http: replayHttp([]), rows: { calendar_day: rows } })
+      next.remote.set('b1/days', new Map(first.remote.get('b1/days')!))
+      expect((await runSink(plugin, b, 'days', next.ports)).plan).toEqual([])
+    }
   })
 })

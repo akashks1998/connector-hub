@@ -5,7 +5,7 @@ import { ConnectorError } from './errors.js'
 import { buildRequest, call, type CallContext } from './http.js'
 import { checkRepeat, firstPage, nextPage } from './paging.js'
 import type { Binding, HostPorts, HttpRequest, TargetHttpRequest } from './ports.js'
-import { buildTargetRequest, callTarget } from './target.js'
+import { buildTargetRequest, callTarget, targetLimits } from './target.js'
 import { canonical, compareCursor, mismatch } from './values.js'
 
 export interface RunOptions {
@@ -114,14 +114,20 @@ export async function runSource<Tx>(
 
   const cursor = complete ? highest : previousCursor
   if (options.dryRun) return { operations, calls, cursor, pages, complete, requests, applied: false }
+  // Without a complete read the cursor cannot move, so the same calls would be sent on every run.
+  if (!complete && calls.length > 0) {
+    throw new ConnectorError('permanent', `sources.${sourceName}: read stopped at the page or record limit; narrow the request so one run covers it`)
+  }
 
   // Target calls are the host's own writes, each idempotent by design; the cursor moves only
   // after all of them succeed, so a failed run is simply repeated.
   for (const [i, request] of calls.entries()) {
     try {
-      await callTarget(ports as HostPorts<never>, request)
+      await callTarget(ports as HostPorts<never>, request, targetLimits(plugin))
     } catch (e) {
-      if (e instanceof ConnectorError) throw new ConnectorError(e.kind, `sources.${sourceName}: ${e.message} (call ${i + 1} of ${calls.length})`, { ...e.details, cause: e })
+      if (e instanceof ConnectorError) {
+        throw new ConnectorError(e.kind, `sources.${sourceName}: ${e.message} (call ${i + 1} of ${calls.length})`, { ...e.details, cause: e, sent: i })
+      }
       throw e
     }
   }

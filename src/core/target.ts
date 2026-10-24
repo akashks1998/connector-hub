@@ -1,5 +1,5 @@
 import type { JsonValue } from '../spec/index.js'
-import type { CompiledTargetRequest } from './compile.js'
+import type { CompiledPlugin, CompiledTargetRequest } from './compile.js'
 import { ConnectorError } from './errors.js'
 import { parseBody, retryAfter } from './http.js'
 import type { HostPorts, TargetHttpRequest } from './ports.js'
@@ -7,6 +7,8 @@ import type { HostPorts, TargetHttpRequest } from './ports.js'
 /** Renders a target request. The path stays relative: the host resolves it under its API root. */
 export function buildTargetRequest(request: CompiledTargetRequest, vars: Record<string, unknown>): TargetHttpRequest {
   const path = String(request.path.evaluate(vars))
+  const problem = unsafePath(path)
+  if (problem) throw new ConnectorError('permanent', `refused target path ${JSON.stringify(path.slice(0, 100))}: ${problem}`)
   const query = new URLSearchParams()
   for (const [name, expr] of request.query) {
     const value = expr.evaluate(vars)
@@ -19,16 +21,44 @@ export function buildTargetRequest(request: CompiledTargetRequest, vars: Record<
 }
 
 /**
+ * Why a rendered path could leave the target root, or null. Checked after rendering, so it
+ * covers literal text and holes alike; hosts should still resolve it under their root.
+ */
+export function unsafePath(path: string): string | null {
+  if (!path.startsWith('/')) return 'it must start with "/"'
+  if (path.startsWith('//')) return 'it must not start with "//"'
+  if (/[\\#?\s]/.test(path)) return 'it must not contain a backslash, "#", "?" or whitespace'
+  for (const segment of path.split('/').slice(1)) {
+    let decoded: string
+    try {
+      decoded = decodeURIComponent(segment)
+    } catch {
+      return 'it has a malformed escape'
+    }
+    if (segment === '' && path !== '/') return 'it has an empty segment'
+    if (decoded === '.' || decoded === '..' || decoded.includes('/') || decoded.includes('\\')) return 'it has a "." or ".." segment or an encoded slash'
+  }
+  return null
+}
+
+/**
  * Sends to the host's own API. A rejected install key is a `config` problem, not a provider
  * reconnect. The host's error message is kept: it is the host's own text, and says what to fix.
  */
-export async function callTarget(ports: HostPorts<never>, request: TargetHttpRequest): Promise<{ status: number; body: JsonValue }> {
+export async function callTarget(
+  ports: HostPorts<never>,
+  request: TargetHttpRequest,
+  limits: { timeoutMs: number; maxBodyBytes: number },
+): Promise<{ status: number; body: JsonValue }> {
   if (!ports.target) throw new ConnectorError('config', 'this plugin calls the target API, but the host has no target port')
   let response
   try {
-    response = await ports.target.send(request)
+    response = await ports.target.send(request, limits)
   } catch (cause) {
     throw new ConnectorError('retryable', `target request failed: ${cause instanceof Error ? cause.message : String(cause)}`, { cause })
+  }
+  if (new TextEncoder().encode(response.body).byteLength > limits.maxBodyBytes) {
+    throw new ConnectorError('permanent', `target response larger than ${limits.maxBodyBytes} bytes`)
   }
   const { status } = response
   if (status < 200 || status >= 300) {
@@ -54,4 +84,10 @@ function detail(body: string): string {
     // Not JSON: show the start of the text.
   }
   return `: ${text.slice(0, 200)}`
+}
+
+/** The plugin's own limits apply to target calls too. */
+export function targetLimits(plugin: CompiledPlugin): { timeoutMs: number; maxBodyBytes: number } {
+  const { limits } = plugin.declaration
+  return { timeoutMs: limits.timeout_ms, maxBodyBytes: limits.max_body_bytes }
 }

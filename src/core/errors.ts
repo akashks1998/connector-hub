@@ -19,7 +19,7 @@ export class ConnectorError extends Error {
     readonly details: {
       retryAfterMs?: number
       status?: number
-      /** For a failed sink run: batches acknowledged before the failure. */
+      /** For a failed sink run: batches acknowledged before the failure. For a `call` source: calls that succeeded. */
       sent?: number
       cause?: unknown
     } = {},

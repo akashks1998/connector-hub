@@ -55,6 +55,7 @@ describe('evaluate', () => {
     expect(() => env.compile('currencyDigits("thb")').evaluate({})).toThrow(/currency/)
     expect(env.compile('upper("thb")').evaluate({})).toBe('THB')
     expect(env.compile('replaceAll("a-b-c", "-", "")').evaluate({})).toBe('abc')
+    expect(env.compile('daysBetween("2026-12-30", "2027-01-02")').evaluate({})).toBe(3)
   })
 
   it('builds maps and lists', () => {

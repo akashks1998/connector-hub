@@ -309,6 +309,18 @@ const BUILTIN_FUNCTIONS: CelFunction[] = [
     }) as never,
   },
   {
+    signature: 'daysBetween(string, string): int',
+    description: 'Days from the first YYYY-MM-DD date to the second, e.g. nights of a stay.',
+    handler: ((from: string, to: string) => {
+      const day = (d: string) => {
+        const t = /^\d{4}-\d{2}-\d{2}$/.test(d) ? Date.parse(`${d}T00:00:00Z`) : Number.NaN
+        if (Number.isNaN(t)) throw new Error(`not a date: ${d}`)
+        return t
+      }
+      return BigInt(Math.round((day(to) - day(from)) / 86_400_000))
+    }) as never,
+  },
+  {
     signature: 'currencyDigits(string): int',
     description: 'Minor-unit digits of an ISO 4217 currency, e.g. 2 for THB, 0 for JPY.',
     handler: ((code: string) => {

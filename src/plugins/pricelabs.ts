@@ -8,6 +8,9 @@ import type { PluginInput } from '../spec/index.js'
  * listing can move from the exporter to this plugin without duplicates in PriceLabs.
  * PriceLabs takes 730 nights and the public calendar returns at most 366, hence two
  * calendar sinks.
+ *
+ * Not yet in the public API, so not sent: bedrooms, OTA listing ids, cleaning fee, and the
+ * creation time of blocks. `city`, `country` and `currency` come from the binding.
  */
 const reservationAck = '!has(response.body.failure) || size(response.body.failure) == 0'
 const today = 'dateIn(now, config.timezone)'
@@ -20,7 +23,7 @@ const calendarSink = (fromDays: number, toDays: number) => ({
     records: 'response.body.days',
   },
   key: 'row.date',
-  fields: ['date', 'rateMinor', 'minStay', 'stopSell', 'bookingId', 'blockId'],
+  fields: ['date', 'available', 'rateMinor', 'minStay', 'stopSell', 'bookingId', 'blockId'],
   on: ['calendar.updated', 'booking.created', 'booking.changed', 'booking.cancelled'],
   batch: { size: 366 },
   request: {
@@ -30,7 +33,7 @@ const calendarSink = (fromDays: number, toDays: number) => ({
       "data": batch.changes.map(c, {
         "date": c.row.date, "end_date": c.row.date,
         "price": fromMinor(int(c.row.rateMinor), currencyDigits(config.currency)),
-        "available_units": c.row.stopSell ? 0 : 1,
+        "available_units": c.row.available ? 1 : 0,
         "booked_units": has(c.row.bookingId) && c.row.bookingId != null ? 1 : 0,
         "blocked_units": !(has(c.row.bookingId) && c.row.bookingId != null)
           && ((has(c.row.blockId) && c.row.blockId != null) || c.row.stopSell) ? 1 : 0,
@@ -72,7 +75,7 @@ export const pricelabsPlugin = {
         path: '/listings',
         body: `{"listings": batch.changes.map(c, {"listing_id": config.pricelabs_listing_id,
           "user_token": config.user_email, "name": c.row.title, "status": "available",
-          "location": {"latitude": c.row.latitude, "longitude": c.row.longitude,
+          "location": {"latitude": double(c.row.latitude), "longitude": double(c.row.longitude),
                        "city": config.city, "country": config.country}})}`,
       },
       ack: '!has(response.body.errors) || size(response.body.errors) == 0',
@@ -89,7 +92,7 @@ export const pricelabsPlugin = {
       },
       key: 'row.id',
       where: 'row.departure >= "2020-01-01"',
-      fields: ['id', 'status', 'arrival', 'departure', 'nights', 'totalAmountMinor', 'currency', 'channel', 'bookedAt'],
+      fields: ['id', 'status', 'arrival', 'departure', 'nights', 'totalAmountMinor', 'currency', 'channel', 'bookedAt', 'receivedAt'],
       on: ['booking.created', 'booking.changed', 'booking.cancelled'],
       // A booking that disappears from the read is sent once more as cancelled.
       on_delete: 'send',
@@ -100,8 +103,8 @@ export const pricelabsPlugin = {
         body: `{"reservations": [{"listing_id": config.pricelabs_listing_id, "data": batch.changes.map(c, {
           "reservation_id": "propool_booking_" + replaceAll(c.row.id, "-", ""),
           "currency": c.row.currency, "start_date": c.row.arrival, "end_date": c.row.departure,
-          "booked_time": has(c.row.bookedAt) && c.row.bookedAt != null
-            ? dyn(replaceAll(c.row.bookedAt.substring(0, 19), "T", " ")) : dyn(null),
+          "booked_time": replaceAll((has(c.row.bookedAt) && c.row.bookedAt != null
+            ? c.row.bookedAt : c.row.receivedAt).substring(0, 19), "T", " "),
           "total_days": c.row.nights,
           "total_cost": fromMinor(int(c.row.totalAmountMinor), currencyDigits(c.row.currency)),
           "status": c.deleted || c.row.status == "cancelled" ? "canceled" : "booked",
@@ -128,6 +131,7 @@ export const pricelabsPlugin = {
         body: `{"reservations": [{"listing_id": config.pricelabs_listing_id, "data": batch.changes.map(c, {
           "reservation_id": "propool_block_" + replaceAll(c.row.id, "-", ""),
           "currency": config.currency, "start_date": c.row.dateFrom, "end_date": addDays(c.row.dateTo, 1),
+          "total_days": daysBetween(c.row.dateFrom, c.row.dateTo) + 1,
           "total_cost": 0, "status": c.deleted ? "canceled" : "blocked", "booking_source": "propool"})}]}`,
       },
       ack: reservationAck,
